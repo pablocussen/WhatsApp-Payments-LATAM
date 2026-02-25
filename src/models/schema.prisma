@@ -1,0 +1,157 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Usuarios ───────────────────────────────────────────
+
+model User {
+  id              String    @id @default(uuid()) @db.Uuid
+  waId            String    @unique @map("wa_id")          // WhatsApp ID (+56XXXXXXXXX)
+  rut             String    @unique                         // Cifrado AES-256
+  rutHash         String    @unique @map("rut_hash")       // HMAC para búsqueda
+  name            String?
+  kycLevel        KycLevel  @default(BASIC) @map("kyc_level")
+  pinHash         String    @map("pin_hash")               // bcrypt hash
+  pinAttempts     Int       @default(0) @map("pin_attempts")
+  lockedUntil     DateTime? @map("locked_until")
+  biometricEnabled Boolean  @default(false) @map("biometric_enabled")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  wallet          Wallet?
+  sentTransactions     Transaction[] @relation("sender")
+  receivedTransactions Transaction[] @relation("receiver")
+  paymentLinks    PaymentLink[]
+  bankAccounts    BankAccount[]
+  webauthnCredentials WebAuthnCredential[]
+
+  @@map("users")
+}
+
+enum KycLevel {
+  BASIC
+  INTERMEDIATE
+  FULL
+}
+
+// ─── Wallet ─────────────────────────────────────────────
+
+model Wallet {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  balance   BigInt   @default(0)             // En pesos CLP (sin decimales)
+  currency  String   @default("CLP")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("wallets")
+}
+
+// ─── Transacciones ──────────────────────────────────────
+
+model Transaction {
+  id            String            @id @default(uuid()) @db.Uuid
+  senderId      String            @map("sender_id") @db.Uuid
+  receiverId    String            @map("receiver_id") @db.Uuid
+  amount        BigInt                                          // En pesos CLP
+  currency      String            @default("CLP")
+  status        TransactionStatus @default(PENDING)
+  paymentMethod PaymentMethod     @map("payment_method")
+  fraudScore    Decimal?          @map("fraud_score") @db.Decimal(3, 2)
+  paymentLinkId String?           @map("payment_link_id") @db.Uuid
+  fee           BigInt            @default(0)                   // Comisión cobrada
+  description   String?
+  reference     String            @unique                       // #WP-2026-XXXXXXXX
+  metadata      Json?
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  completedAt   DateTime?         @map("completed_at")
+
+  sender        User              @relation("sender", fields: [senderId], references: [id])
+  receiver      User              @relation("receiver", fields: [receiverId], references: [id])
+  paymentLink   PaymentLink?      @relation(fields: [paymentLinkId], references: [id])
+
+  @@index([senderId, createdAt(sort: Desc)])
+  @@index([receiverId, createdAt(sort: Desc)])
+  @@map("transactions")
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REVERSED
+}
+
+enum PaymentMethod {
+  WALLET
+  WEBPAY_CREDIT
+  WEBPAY_DEBIT
+  KHIPU
+  BANK_TRANSFER
+}
+
+// ─── Enlaces de Pago ────────────────────────────────────
+
+model PaymentLink {
+  id          String   @id @default(uuid()) @db.Uuid
+  merchantId  String   @map("merchant_id") @db.Uuid
+  shortCode   String   @unique @map("short_code")      // Código corto para URL
+  amount      BigInt?                                    // NULL = monto libre
+  description String?  @db.VarChar(500)
+  expiresAt   DateTime? @map("expires_at")
+  maxUses     Int      @default(1) @map("max_uses")
+  currentUses Int      @default(0) @map("current_uses")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  merchant    User     @relation(fields: [merchantId], references: [id])
+  transactions Transaction[]
+
+  @@index([shortCode])
+  @@map("payment_links")
+}
+
+// ─── Cuentas Bancarias ──────────────────────────────────
+
+model BankAccount {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  bankName      String   @map("bank_name")
+  accountType   String   @map("account_type")           // corriente, vista, ahorro
+  accountNumber String   @map("account_number")          // Cifrado AES-256
+  isDefault     Boolean  @default(false) @map("is_default")
+  isVerified    Boolean  @default(false) @map("is_verified")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@map("bank_accounts")
+}
+
+// ─── WebAuthn (Biometría) ───────────────────────────────
+
+model WebAuthnCredential {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  credentialId    String   @unique @map("credential_id")
+  publicKey       Bytes    @map("public_key")
+  counter         BigInt   @default(0)
+  deviceName      String?  @map("device_name")
+  createdAt       DateTime @default(now()) @map("created_at")
+  lastUsedAt      DateTime? @map("last_used_at")
+
+  user            User     @relation(fields: [userId], references: [id])
+
+  @@map("webauthn_credentials")
+}
