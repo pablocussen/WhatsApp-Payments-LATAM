@@ -2,6 +2,18 @@ node_modules/
 dist/
 .env
 .env.local
+.env.production
 *.log
 coverage/
 .prisma/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~

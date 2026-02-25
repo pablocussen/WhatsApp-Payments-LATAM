@@ -75,6 +75,7 @@ WhatsApp-Payments-LATAM/
 │   │   ├── user.service.ts                # Registro, KYC, PIN, perfil
 │   │   ├── wallet.service.ts              # Saldo, crédito, débito, transferencia
 │   │   ├── transaction.service.ts         # Pagos P2P, comisiones, historial
+│   │   ├── payment.service.ts             # Cálculo fees, validación límites
 │   │   ├── payment-link.service.ts        # Enlaces de cobro compartibles
 │   │   ├── merchant.service.ts            # Dashboard, liquidación, reportes
 │   │   ├── fraud.service.ts               # Detección de fraude (reglas + AI)
