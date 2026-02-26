@@ -40,12 +40,12 @@ export class BotService {
   private wallets = new WalletService();
   private transactions = new TransactionService();
   private paymentLinks = new PaymentLinkService();
-  private merchants = new MerchantService();
+
 
   async handleMessage(from: string, text: string, buttonId?: string): Promise<void> {
     try {
       // Get or create session
-      let session = await getSession(from);
+      const session = await getSession(from);
       const user = await this.users.getUserByWaId(from);
 
       // ── Not registered → Onboarding
@@ -230,9 +230,10 @@ export class BotService {
         return this.startTopUpFlow(from);
       case 'history':
         return this.showHistory(from, userId);
-      case 'help':
+      case 'help': {
         const user = await this.users.getUserByWaId(from);
         return this.sendHelp(from, user?.name ?? null);
+      }
       case 'support':
         return this.wa.sendTextMessage(from, 'Soporte WhatPay: escríbenos a soporte@whatpay.cl o llama al 600 XXX XXXX (Lun-Vie 9-18h).');
       case 'profile':
@@ -258,7 +259,7 @@ export class BotService {
     switch (session.state as State) {
       case 'PAY_ENTER_PHONE': {
         // Find receiver
-        const phone = text.replace(/[\s\-\+]/g, '');
+        const phone = text.replace(/[\s\-+]/g, '');
         const normalizedPhone = phone.startsWith('56') ? phone : `56${phone}`;
 
         const receiver = await this.users.getUserByWaId(normalizedPhone);
@@ -551,7 +552,7 @@ export class BotService {
     await this.wa.sendTextMessage(from, 'Escribe tu PIN actual:');
   }
 
-  private async handleChangePinFlow(from: string, userId: string, text: string, session: ConversationSession): Promise<void> {
+  private async handleChangePinFlow(from: string, _userId: string, text: string, session: ConversationSession): Promise<void> {
     switch (session.state as State) {
       case 'CHANGE_PIN_CURRENT': {
         const verify = await this.users.verifyUserPin(from, text);

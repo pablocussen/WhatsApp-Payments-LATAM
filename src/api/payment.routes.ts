@@ -4,13 +4,10 @@ import { requireAuth, AuthenticatedRequest } from '../middleware/jwt.middleware'
 import { PaymentLinkService } from '../services/payment-link.service';
 import { TransactionService } from '../services/transaction.service';
 import { WalletService } from '../services/wallet.service';
-import { createLogger } from '../config/logger';
-
 const router = Router();
 const paymentLinks = new PaymentLinkService();
 const transactions = new TransactionService();
 const wallets = new WalletService();
-const log = createLogger('payment-api');
 
 // ─── Schemas ────────────────────────────────────────────
 

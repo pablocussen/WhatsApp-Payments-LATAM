@@ -17,3 +17,7 @@ desktop.ini
 .idea/
 *.swp
 *~
+
+# Misc
+GEMINI_AUDIT_PROMPT.md
+*.local.ts

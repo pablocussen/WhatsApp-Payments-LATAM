@@ -69,10 +69,8 @@ router.post('/topup/webpay/callback', async (req: Request, res: Response) => {
   // Transbank no nos devuelve el buyOrder en el callback directamente,
   // pero el token_ws es único por transacción — lo usamos como key alternativo.
   // Buscamos el mapping por prefijo (token_ws no es el buyOrder, necesitamos el buy_order de la respuesta)
-  const buyOrder = result.authorizationCode ? undefined : undefined; // buy_order viene en confirmTransaction
   // NOTA: TransbankService devuelve {status, amount, authorizationCode, cardLast4, paymentType}
-  // pero no el buyOrder. Para resolverlo correctamente necesitamos el buyOrder del body de Transbank.
-  // El token_ws que viene en el body es el mismo que creamos, lo usamos como referencia.
+  // pero no el buyOrder. Usamos el token_ws como referencia para el log.
   const tbkToken = token as string;
 
   try {

@@ -1,17 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { compare } from 'bcrypt';
 
-// ─── Types ──────────────────────────────────────────────
-
-interface AuthenticatedRequest extends Request {
-  userId?: string;
-  kycLevel?: string;
-}
-
 // ─── PIN Validation ─────────────────────────────────────
 
 const MAX_PIN_ATTEMPTS = 3;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 
 export function isSecurePin(pin: string): boolean {
   if (pin.length !== 6) return false;

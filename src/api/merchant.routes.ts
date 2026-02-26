@@ -1,11 +1,8 @@
 import { Router, Response } from 'express';
 import { requireAuth, requireKycLevel, AuthenticatedRequest } from '../middleware/jwt.middleware';
 import { MerchantService } from '../services/merchant.service';
-import { createLogger } from '../config/logger';
-
 const router = Router();
 const merchants = new MerchantService();
-const log = createLogger('merchant-api');
 
 // ─── Dashboard ──────────────────────────────────────────
 

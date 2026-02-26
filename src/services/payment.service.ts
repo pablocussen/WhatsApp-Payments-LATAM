@@ -2,23 +2,6 @@ import { randomBytes } from 'crypto';
 
 // ─── Types ──────────────────────────────────────────────
 
-interface CreatePaymentParams {
-  senderId: string;
-  receiverId: string;
-  amount: number;        // En pesos CLP
-  paymentMethod: 'WALLET' | 'WEBPAY_CREDIT' | 'WEBPAY_DEBIT' | 'KHIPU';
-  description?: string;
-  paymentLinkId?: string;
-}
-
-interface PaymentResult {
-  transactionId: string;
-  reference: string;
-  status: 'COMPLETED' | 'PENDING' | 'FAILED';
-  fee: number;
-  message: string;
-}
-
 interface FeeCalculation {
   grossAmount: number;
   fee: number;
@@ -34,9 +17,6 @@ const FEE_TABLE = {
   WEBPAY_DEBIT: { percentage: 0.018, fixed: 50 },  // 1.8% + $50
   KHIPU: { percentage: 0.01, fixed: 0 },           // 1.0%
 } as const;
-
-// P2P wallet transfers are free
-const P2P_FREE = true;
 
 // ─── Payment Service ────────────────────────────────────
 
