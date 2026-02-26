@@ -4,7 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { env } from '../config/environment';
-import { connectRedis } from '../config/database';
+import { connectRedis, getRedis, prisma } from '../config/database';
 import { createLogger } from '../config/logger';
 import { rateLimit } from '../middleware/auth.middleware';
 import { errorHandler } from '../middleware/error.middleware';
@@ -36,13 +36,35 @@ app.use((req, _res, next) => {
 
 // ─── Health Check ───────────────────────────────────────
 
-app.get('/health', (_req, res) => {
-  res.json({
-    status: 'ok',
+app.get('/health', async (_req, res) => {
+  const checks: Record<string, 'ok' | 'error'> = {};
+
+  // Redis ping
+  try {
+    await getRedis().ping();
+    checks.redis = 'ok';
+  } catch {
+    checks.redis = 'error';
+  }
+
+  // DB ping
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    checks.db = 'ok';
+  } catch {
+    checks.db = 'error';
+  }
+
+  const allOk = Object.values(checks).every((v) => v === 'ok');
+  const httpStatus = allOk ? 200 : 503;
+
+  res.status(httpStatus).json({
+    status: allOk ? 'ok' : 'degraded',
     service: 'whatpay-api',
     version: '0.1.0',
     timestamp: new Date().toISOString(),
     environment: env.NODE_ENV,
+    checks,
   });
 });
 
@@ -67,6 +89,14 @@ app.get('/api/docs/spec', (_req, res) => {
 
 app.get('/api/docs', (_req, res) => {
   const specUrl = `${env.APP_BASE_URL}/api/docs/spec`;
+  // Override helmet's CSP to allow unpkg CDN scripts/styles for Swagger UI
+  res.setHeader('Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' https://unpkg.com; " +
+    "style-src 'self' 'unsafe-inline' https://unpkg.com; " +
+    "img-src 'self' data: https://unpkg.com; " +
+    `connect-src 'self' ${env.APP_BASE_URL};`
+  );
   res.setHeader('Content-Type', 'text/html');
   res.send(`<!DOCTYPE html>
 <html lang="es">
