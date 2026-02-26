@@ -5,32 +5,32 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
 
   // Database
-  DATABASE_URL: z.string().url(),
-  REDIS_URL: z.string().url(),
+  DATABASE_URL: z.string(),
+  REDIS_URL: z.string().default('redis://localhost:6379'),
 
   // WhatsApp Business API
   WHATSAPP_API_URL: z.string().url().default('https://graph.facebook.com/v18.0'),
-  WHATSAPP_PHONE_NUMBER_ID: z.string(),
-  WHATSAPP_BUSINESS_ACCOUNT_ID: z.string(),
-  WHATSAPP_API_TOKEN: z.string(),
-  WHATSAPP_VERIFY_TOKEN: z.string(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().default('not-configured'),
+  WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().default('not-configured'),
+  WHATSAPP_API_TOKEN: z.string().default('not-configured'),
+  WHATSAPP_VERIFY_TOKEN: z.string().default('whatpay-verify-2026'),
 
   // Transbank
-  TRANSBANK_COMMERCE_CODE: z.string(),
-  TRANSBANK_API_KEY: z.string(),
+  TRANSBANK_COMMERCE_CODE: z.string().default('597055555532'),
+  TRANSBANK_API_KEY: z.string().default('579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C'),
   TRANSBANK_ENVIRONMENT: z.enum(['integration', 'production']).default('integration'),
 
   // Khipu
-  KHIPU_RECEIVER_ID: z.string(),
-  KHIPU_SECRET: z.string(),
+  KHIPU_RECEIVER_ID: z.string().default('not-configured'),
+  KHIPU_SECRET: z.string().default('not-configured'),
 
   // Security
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRATION: z.string().default('30m'),
-  ENCRYPTION_KEY_ID: z.string(), // Cloud KMS key ID
+  ENCRYPTION_KEY_ID: z.string().default('local'),
 
   // Google Cloud
-  GCP_PROJECT_ID: z.string(),
+  GCP_PROJECT_ID: z.string().default('whatpay-cl'),
   GCP_REGION: z.string().default('southamerica-west1'),
   PUBSUB_PAYMENT_TOPIC: z.string().default('payment-events'),
 
