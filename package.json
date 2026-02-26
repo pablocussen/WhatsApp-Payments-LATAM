@@ -7,7 +7,7 @@
     "dev": "tsx watch src/api/server.ts",
     "build": "tsc",
     "start": "node dist/api/server.js",
-    "test": "jest --config jest.config.ts",
+    "test": "jest --config jest.config.js",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "lint": "eslint src/ --ext .ts",
@@ -28,6 +28,7 @@
     "helmet": "^7.2.0",
     "jsonwebtoken": "^9.0.2",
     "redis": "^4.7.0",
+    "yn": "^5.1.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

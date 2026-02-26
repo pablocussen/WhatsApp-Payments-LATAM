@@ -181,11 +181,21 @@ export class UserService {
     const newHash = await hashPin(newPin);
     await prisma.user.update({
       where: { waId },
-      data: { pinHash: newHash },
+      data: { pinHash: newHash, pinAttempts: 0, lockedUntil: null },
     });
 
     log.info('PIN changed', { waId });
     return { success: true, message: 'PIN actualizado correctamente.' };
+  }
+
+  async setNewPin(waId: string, newPin: string): Promise<void> {
+    if (!isSecurePin(newPin)) throw new Error('PIN inseguro.');
+    const newHash = await hashPin(newPin);
+    await prisma.user.update({
+      where: { waId },
+      data: { pinHash: newHash, pinAttempts: 0, lockedUntil: null },
+    });
+    log.info('PIN set via bot flow', { waId });
   }
 
   async updateKycLevel(userId: string, level: 'BASIC' | 'INTERMEDIATE' | 'FULL'): Promise<void> {

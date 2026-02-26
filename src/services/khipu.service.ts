@@ -117,11 +117,13 @@ export class KhipuService {
 
   /**
    * Verifica la notificación de Khipu (callback).
+   * El notification_token es el payment_id de Khipu (formato alfanumérico).
+   * La validación real ocurre llamando getPaymentStatus() con este token.
    */
   verifyNotification(notificationToken: string, apiVersion: string): boolean {
-    // Khipu sends a notification_token that we need to verify
-    // by making a GET request to /payments with the token
-    return notificationToken.length > 0 && apiVersion === '1.3';
+    if (apiVersion !== '1.3') return false;
+    // payment_id de Khipu: alfanumérico, mínimo 6 caracteres
+    return /^[a-zA-Z0-9_-]{6,}$/.test(notificationToken);
   }
 
   private getAuthHeader(method: string, path: string, body: string): string {

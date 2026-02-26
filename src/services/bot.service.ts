@@ -7,7 +7,7 @@ import { MerchantService } from './merchant.service';
 import { getSession, setSession, deleteSession, ConversationSession } from '../config/database';
 import { createLogger } from '../config/logger';
 import { formatCLP, formatPhone, divider, receipt } from '../utils/format';
-import { validateRut, formatRut } from '../utils/crypto';
+import { validateRut, formatRut, hashPin, verifyPinHash } from '../utils/crypto';
 import { isSecurePin } from '../middleware/auth.middleware';
 
 const log = createLogger('bot-service');
@@ -143,7 +143,7 @@ export class BotService {
           return;
         }
 
-        session.data.pin = text;
+        session.data.pinHash = await hashPin(text);
         session.state = 'REGISTER_PIN_CONFIRM';
         await setSession(from, session);
         await this.wa.sendTextMessage(from, 'Confirma tu PIN (escríbelo de nuevo):');
@@ -151,18 +151,19 @@ export class BotService {
       }
 
       case 'REGISTER_PIN_CONFIRM': {
-        if (text !== session.data.pin) {
+        if (!await verifyPinHash(text, session.data.pinHash)) {
           session.state = 'REGISTER_PIN';
+          delete session.data.pinHash;
           await setSession(from, session);
           await this.wa.sendTextMessage(from, 'Los PINs no coinciden. Crea tu PIN de nuevo:');
           return;
         }
 
-        // Create user
+        // Create user (text is the confirmed PIN)
         const result = await this.users.createUser({
           waId: from,
           rut: session.data.rut,
-          pin: session.data.pin,
+          pin: text,
         });
 
         if (!result.success) {
@@ -569,23 +570,22 @@ export class BotService {
           await this.wa.sendTextMessage(from, 'PIN inseguro. Elige otro:');
           return;
         }
-        session.data.newPin = text;
+        session.data.newPinHash = await hashPin(text);
         session.state = 'CHANGE_PIN_CONFIRM';
         await setSession(from, session);
         await this.wa.sendTextMessage(from, 'Confirma tu nuevo PIN:');
         return;
       }
       case 'CHANGE_PIN_CONFIRM': {
-        if (text !== session.data.newPin) {
+        if (!await verifyPinHash(text, session.data.newPinHash)) {
           session.state = 'CHANGE_PIN_NEW';
+          delete session.data.newPinHash;
           await setSession(from, session);
           await this.wa.sendTextMessage(from, 'No coinciden. Escribe el nuevo PIN de nuevo:');
           return;
         }
-        // We already verified current PIN, just update
-        const newHash = await import('../utils/crypto').then(m => m.hashPin(text));
-        const { prisma } = await import('../config/database');
-        await prisma.user.update({ where: { waId: from }, data: { pinHash: newHash } });
+        // Current PIN was already verified; use UserService to update safely
+        await this.users.setNewPin(from, text);
         await deleteSession(from);
         await this.wa.sendTextMessage(from, 'PIN actualizado correctamente.');
         return;
