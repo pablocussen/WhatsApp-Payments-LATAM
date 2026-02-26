@@ -1,6 +1,8 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
 import { env } from '../config/environment';
 import { connectRedis } from '../config/database';
 import { createLogger } from '../config/logger';
@@ -52,6 +54,57 @@ app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/merchants', merchantRoutes);
 app.use('/api/v1/topup', topupRoutes);
 
+// ─── API Docs (Swagger UI via CDN) ──────────────────────
+
+app.get('/api/docs/spec', (_req, res) => {
+  const specPath = path.join(__dirname, '../../docs/openapi.json');
+  if (!fs.existsSync(specPath)) {
+    return res.status(404).json({ error: 'OpenAPI spec not found' });
+  }
+  res.setHeader('Content-Type', 'application/json');
+  res.send(fs.readFileSync(specPath, 'utf8'));
+});
+
+app.get('/api/docs', (_req, res) => {
+  const specUrl = `${env.APP_BASE_URL}/api/docs/spec`;
+  res.setHeader('Content-Type', 'text/html');
+  res.send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatPay API Docs</title>
+  <meta name="description" content="WhatPay REST API — Pagos por WhatsApp en Chile">
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+  <style>
+    body { margin: 0; }
+    .topbar { background: #075E54 !important; }
+    .topbar-wrapper .link { font-size: 1.1rem; font-weight: 700; }
+    .topbar-wrapper .link::before { content: "WhatPay"; color: #25D366; }
+    .topbar-wrapper .link span { display: none; }
+    #swagger-ui .info .title { color: #075E54; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    SwaggerUIBundle({
+      url: '${specUrl}',
+      dom_id: '#swagger-ui',
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
+      layout: 'BaseLayout',
+      deepLinking: true,
+      tryItOutEnabled: true,
+      persistAuthorization: true,
+      filter: true,
+      tagsSorter: 'alpha',
+    });
+  </script>
+</body>
+</html>`);
+});
+
 // ─── Payment Link Landing (public) ──────────────────────
 
 app.get('/c/:code', (req, res) => {
@@ -79,7 +132,7 @@ async function start() {
         env: env.NODE_ENV,
         url: `http://localhost:${env.PORT}`,
       });
-      log.info('Routes loaded: /health, /api/v1/webhook, /api/v1/users, /api/v1/payments, /api/v1/merchants, /c/:code');
+      log.info('Routes loaded: /health, /api/docs, /api/v1/webhook, /api/v1/users, /api/v1/payments, /api/v1/merchants, /c/:code');
     });
   } catch (err) {
     log.error('Failed to start server', { error: (err as Error).message });

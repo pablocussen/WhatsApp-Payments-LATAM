@@ -1,202 +1,271 @@
-# WhatPay - Pagos Integrados via WhatsApp para Latinoamérica
+# WhatPay — Pagos por WhatsApp en Chile
 
-> Plataforma de pagos peer-to-peer y comercio integrada nativamente con WhatsApp,
-> construida con Antigravity Framework y Cloud AI. Inicio en Chile, expansión LATAM.
+> Plataforma de pagos peer-to-peer integrada nativamente con WhatsApp.
+> Backend en Node.js + TypeScript, desplegado en GCP Cloud Run (Santiago).
+
+[![CI](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml/badge.svg)](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-73%2F73%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![GCP Cloud Run](https://img.shields.io/badge/deployed-GCP%20Cloud%20Run-4285F4?logo=googlecloud&logoColor=white)](https://whatpay-api-930472612593.southamerica-west1.run.app/health)
+[![API Docs](https://img.shields.io/badge/API-Swagger%20Docs-85EA2D?logo=swagger&logoColor=black)](https://whatpay-api-930472612593.southamerica-west1.run.app/api/docs)
+[![Node](https://img.shields.io/badge/Node.js-20+-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![License](https://img.shields.io/badge/license-Portfolio%20Project-orange)](https://cussen.cl/whatpay)
 
 ---
 
-## Visión del Proyecto
+## Demo en producción
 
-WhatPay permite a cualquier persona en Chile enviar y recibir pagos directamente
-desde una conversación de WhatsApp, sin necesidad de descargar otra aplicación.
-Comercios pequeños pueden cobrar compartiendo un enlace, y los usuarios pagan
-con un toque y verificación biométrica o PIN.
+| Recurso | URL |
+|---------|-----|
+| 🟢 API Health | [`/health`](https://whatpay-api-930472612593.southamerica-west1.run.app/health) |
+| 📘 Swagger Docs | [`/api/docs`](https://whatpay-api-930472612593.southamerica-west1.run.app/api/docs) |
+| 🌐 Landing Page | [`cussen.cl/whatpay`](https://cussen.cl/whatpay/) |
 
-## Problema que Resuelve
+---
+
+## El Problema
 
 - **67% de los chilenos** usa WhatsApp como canal principal de comunicación
 - Los comercios informales y PYMES pierden ventas por fricción en el cobro
-- Las transferencias bancarias requieren datos complejos (RUT, banco, tipo cuenta, número)
+- Las transferencias bancarias requieren datos complejos (RUT, banco, tipo de cuenta, número)
 - No existe una solución nativa de pagos dentro de WhatsApp para Chile
 
-## Propuesta de Valor
+## La Solución
 
-| Para Usuarios | Para Comercios |
-|---|---|
-| Pagar desde el chat sin salir de WhatsApp | Cobrar con un enlace compartible |
-| Autenticación biométrica o PIN de 6 dígitos | Dashboard de ventas en tiempo real |
-| Sin descargar apps adicionales | Integración con inventario básico |
-| Historial de transacciones en el chat | Liquidación en 24-48 horas |
+WhatPay permite enviar y recibir pagos **directamente desde una conversación de WhatsApp**, sin salir de la app. Los comercios cobran compartiendo un link; los usuarios pagan con un toque y su PIN de 6 dígitos.
 
-## Stack Tecnológico Principal
+---
+
+## Arquitectura
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                     WhatsApp Cloud API (Meta)                    │
+└─────────────────────────────┬────────────────────────────────────┘
+                              │ HTTPS webhook
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│         GCP Cloud Run  ·  Node.js + Express + TypeScript         │
+│                                                                  │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────────────┐│
+│  │  BotService │  │PaymentService│  │  FraudService (AI rules) ││
+│  │ (FSM conv.) │  │(P2P, links)  │  │  5 reglas + ML scoring   ││
+│  └──────┬──────┘  └──────┬───────┘  └──────────────────────────┘│
+│         │                │                                       │
+│  ┌──────▼──────┐  ┌──────▼───────┐  ┌──────────────────────────┐│
+│  │JWT Middleware│  │Auth Middleware│  │  Error Middleware        ││
+│  │ KYC guards  │  │PIN + rate lmt │  │  Zod + AppError types   ││
+│  └─────────────┘  └──────────────┘  └──────────────────────────┘│
+└───────────┬──────────────────────┬───────────────────────────────┘
+            │                      │
+   ┌────────▼────────┐   ┌────────▼────────┐   ┌──────────────────┐
+   │   Cloud SQL     │   │  Memorystore    │   │   Cloud KMS      │
+   │  PostgreSQL 16  │   │   Redis 7       │   │  AES-256 keys    │
+   │  Wallets · Tx   │   │  Sessions · OTP │   │  90-day rotation │
+   │  Users · Links  │   │  Rate limiting  │   └──────────────────┘
+   └─────────────────┘   └─────────────────┘
+            │
+   ┌────────▼────────────────────────────────┐
+   │          Integraciones de Pago          │
+   │  Transbank WebPay Plus  ·  Khipu        │
+   │  (crédito/débito)       (transferencia) │
+   └─────────────────────────────────────────┘
+```
+
+---
+
+## Stack Tecnológico
 
 | Capa | Tecnología |
-|---|---|
-| **Framework Core** | Antigravity (orquestación de microservicios) |
-| **AI/ML** | Google Cloud AI (detección de fraude, NLP para chatbot) |
-| **Backend** | Node.js + TypeScript / Python (FastAPI para ML) |
-| **Base de Datos** | PostgreSQL (transaccional) + Redis (cache/sesiones) |
-| **Mensajería** | WhatsApp Business API (Cloud API) |
-| **Pagos** | Transbank WebPay Plus + Khipu + transferencias bancarias |
-| **Infraestructura** | Google Cloud Platform (Cloud Run, Cloud SQL, Pub/Sub) |
-| **Seguridad** | OAuth 2.0, WebAuthn (biometría), cifrado AES-256 |
-| **Monitoreo** | Cloud Monitoring + Grafana + PagerDuty |
+|------|-----------|
+| **Runtime** | Node.js 20 + TypeScript 5.6 (strict mode) |
+| **Framework** | Express 4 · Zod (validación) · Prisma ORM |
+| **Base de Datos** | PostgreSQL 16 (Cloud SQL) + Redis 7 (Memorystore) |
+| **Mensajería** | WhatsApp Business Cloud API |
+| **Pagos** | Transbank WebPay Plus · Khipu (transferencias bancarias) |
+| **Infraestructura** | GCP Cloud Run · Cloud SQL · Memorystore · Pub/Sub · KMS |
+| **IaC** | Terraform (main.tf — VPC, Cloud Run, SQL, Redis, KMS, Pub/Sub) |
+| **CI/CD** | GitHub Actions + Google Cloud Build |
+| **Seguridad** | JWT · bcrypt cost 12 · AES-256-GCM · WebAuthn · Rate limiting Redis |
+| **Testing** | Jest 29 · ts-jest (73 tests, 5 suites) |
+
+---
+
+## API Endpoints
+
+| Método | Endpoint | Auth | Descripción |
+|--------|----------|------|-------------|
+| `GET` | `/health` | — | Estado del servicio |
+| `GET` | `/api/docs` | — | Swagger UI interactivo |
+| `POST` | `/api/v1/users/register` | — | Registro (RUT + PIN 6 dígitos) |
+| `POST` | `/api/v1/users/login` | — | PIN → JWT (30min, bloqueo 3 intentos) |
+| `GET` | `/api/v1/users/profile` | JWT | Perfil + nivel KYC |
+| `GET` | `/api/v1/payments/balance` | JWT | Saldo del wallet |
+| `POST` | `/api/v1/payments/pay` | JWT | Pago P2P (gratis, atómico) |
+| `POST` | `/api/v1/payments/links` | JWT | Crear link de cobro |
+| `GET` | `/api/v1/payments/history` | JWT | Historial de transacciones |
+| `POST` | `/api/v1/topup/webpay` | JWT | Iniciar recarga WebPay |
+| `POST` | `/api/v1/topup/khipu` | JWT | Iniciar recarga Khipu |
+| `GET` | `/api/v1/merchants/dashboard` | JWT | Dashboard comercio |
+| `POST` | `/api/v1/webhook` | — | Webhook WhatsApp (deduplicado) |
+
+> Documentación interactiva completa: [`/api/docs`](https://whatpay-api-930472612593.southamerica-west1.run.app/api/docs)
+
+---
+
+## Seguridad Implementada
+
+| Capa | Implementación |
+|------|---------------|
+| **Datos en reposo** | AES-256-GCM (RUT, cuentas bancarias) con Cloud KMS |
+| **Autenticación** | bcrypt cost 12 para PIN · JWT RS256 · WebAuthn biométrico |
+| **Brute force** | Redis MULTI/EXEC atómico · 3 intentos → bloqueo 15 min |
+| **Anti double-spending** | PostgreSQL `SELECT FOR UPDATE` en transferencias |
+| **Idempotencia** | Deduplicación webhook por message ID · Redis DEL antes de acreditar |
+| **Detección fraude** | 5 reglas + ML scoring · Bloqueo automático P0 |
+| **Secretos** | Google Secret Manager · rotación de llaves cada 90 días |
+| **Red** | VPC privada · Cloud Run sin IP pública · TLS end-to-end |
+
+---
+
+## Modelo de Comisiones
+
+| Método | Comisión | Fijo |
+|--------|----------|------|
+| P2P Wallet | **Gratis** | $0 |
+| WebPay Débito | 1.8% | $50 |
+| WebPay Crédito | 2.8% | $50 |
+| Khipu (transferencia) | 1.0% | $0 |
+
+---
+
+## Inicio Rápido
+
+```bash
+# Clonar
+git clone https://github.com/pablocussen/WhatsApp-Payments-LATAM.git
+cd WhatsApp-Payments-LATAM
+
+# Instalar
+npm install
+
+# Configurar entorno
+cp .env.example .env
+# Completar con credenciales de WhatsApp API, Transbank, Khipu, etc.
+
+# Levantar servicios locales
+npm run docker:up       # PostgreSQL 16 + Redis 7
+
+# Crear schema
+npm run db:push
+
+# Desarrollo (hot reload)
+npm run dev
+
+# Tests
+npm test                # 73/73
+npm run test:coverage   # con reporte de cobertura
+```
+
+### Variables de entorno requeridas
+
+```bash
+DATABASE_URL=postgresql://...   # REQUERIDO
+JWT_SECRET=...                  # REQUERIDO (mín. 32 chars)
+```
+
+El resto tiene defaults seguros para desarrollo. Ver `.env.example` para todas las variables.
+
+---
+
+## Scripts
+
+| Comando | Descripción |
+|---------|-------------|
+| `npm run dev` | Servidor desarrollo (hot reload con tsx) |
+| `npm run build` | Compilar TypeScript → dist/ |
+| `npm start` | Ejecutar build de producción |
+| `npm test` | 73 tests (unit + integración) |
+| `npm run test:coverage` | Tests + reporte de cobertura |
+| `npm run lint` | ESLint en src/ |
+| `npm run docker:up` | Levantar PostgreSQL + Redis locales |
+| `npm run db:push` | Sincronizar schema Prisma con DB |
+| `npm run deploy:staging` | Deploy a staging (GCP Cloud Run) |
+| `npm run deploy:prod` | Deploy a producción |
+
+---
 
 ## Estructura del Proyecto
 
 ```
 WhatsApp-Payments-LATAM/
-├── README.md                              # Este archivo
-├── package.json                           # Dependencias y scripts
-├── tsconfig.json                          # Configuración TypeScript
-├── jest.config.ts                         # Configuración de tests
-├── .eslintrc.json / .prettierrc           # Linting y formato
-├── .env.example                           # Variables de entorno (template)
-│
-├── docs/
-│   ├── 01_ARQUITECTURA_TECNICA.md         # Arquitectura y diseño del sistema
-│   ├── 02_MARCO_LEGAL_CHILE.md            # Regulaciones y compliance Chile
-│   ├── 03_FLUJOS_UX.md                    # Experiencia de usuario paso a paso
-│   ├── 04_MODELO_NEGOCIO.md               # Modelo de ingresos y proyecciones
-│   ├── 05_SEGURIDAD_AUTH.md               # Seguridad y autenticación
-│   └── 06_CRONOGRAMA_TESTING.md           # Timeline y plan de pruebas
-│
+├── .github/workflows/ci.yml    # GitHub Actions CI (type-check + tests + build)
 ├── src/
 │   ├── api/
-│   │   ├── server.ts                      # Express app + startup
-│   │   ├── webhook.routes.ts              # WhatsApp webhook (GET/POST)
-│   │   ├── user.routes.ts                 # /users (register, login, profile)
-│   │   ├── payment.routes.ts              # /payments (pay, links, wallet)
-│   │   ├── merchant.routes.ts             # /merchants (dashboard, settlement)
-│   │   └── topup.routes.ts               # /topup (WebPay, Khipu callbacks)
+│   │   ├── server.ts           # Express app · /health · /api/docs · routes
+│   │   ├── webhook.routes.ts   # WhatsApp webhook (deduplicación Redis)
+│   │   ├── user.routes.ts      # /users — registro, login, perfil, KYC
+│   │   ├── payment.routes.ts   # /payments — P2P, links, wallet, historial
+│   │   ├── merchant.routes.ts  # /merchants — dashboard, liquidación
+│   │   └── topup.routes.ts     # /topup — WebPay + Khipu (Redis mapping)
 │   ├── services/
-│   │   ├── bot.service.ts                 # Motor conversacional WhatsApp (stateful)
-│   │   ├── whatsapp.service.ts            # WhatsApp Cloud API client
-│   │   ├── user.service.ts                # Registro, KYC, PIN, perfil
-│   │   ├── wallet.service.ts              # Saldo, crédito, débito, transferencia
-│   │   ├── transaction.service.ts         # Pagos P2P, comisiones, historial
-│   │   ├── payment.service.ts             # Cálculo fees, validación límites
-│   │   ├── payment-link.service.ts        # Enlaces de cobro compartibles
-│   │   ├── merchant.service.ts            # Dashboard, liquidación, reportes
-│   │   ├── fraud.service.ts               # Detección de fraude (reglas + AI)
-│   │   ├── transbank.service.ts           # Integración WebPay Plus
-│   │   ├── khipu.service.ts               # Integración Khipu (transferencias)
-│   │   └── index.ts                       # Barrel exports
+│   │   ├── bot.service.ts      # FSM conversacional WhatsApp (15 estados)
+│   │   ├── user.service.ts     # Registro, KYC, PIN (setNewPin, setKycLevel)
+│   │   ├── wallet.service.ts   # Saldo, crédito/débito, transferencias atómicas
+│   │   ├── transaction.service.ts  # Pagos P2P, comisiones, historial
+│   │   ├── payment-link.service.ts # Links cortos (whatpay.cl/c/{code})
+│   │   ├── fraud.service.ts    # 5 reglas + scoring · bloqueo automático
+│   │   ├── transbank.service.ts    # Transbank WebPay Plus SDK
+│   │   └── khipu.service.ts    # Khipu API (HMAC-SHA256 auth)
 │   ├── middleware/
-│   │   ├── jwt.middleware.ts              # JWT auth + KYC level guard
-│   │   ├── auth.middleware.ts             # PIN validation + rate limiting
-│   │   └── error.middleware.ts            # Error handler centralizado
-│   ├── models/
-│   │   └── schema.prisma                  # Esquema DB (Users, Wallets, Tx, Links)
+│   │   ├── jwt.middleware.ts   # JWT auth · requireKyc guards
+│   │   ├── auth.middleware.ts  # PIN validation · rate limiting Redis
+│   │   └── error.middleware.ts # Errores tipados (AppError hierarchy)
+│   ├── models/schema.prisma    # Users · Wallets · Transactions · PaymentLinks
 │   ├── utils/
-│   │   ├── crypto.ts                      # AES-256, bcrypt, RUT, HMAC
-│   │   ├── format.ts                      # Formateo CLP, teléfono, fechas
-│   │   └── index.ts                       # Barrel exports
+│   │   ├── crypto.ts           # AES-256-GCM · bcrypt · RUT · HMAC · OTP
+│   │   └── format.ts           # CLP · teléfono · mensajes WhatsApp
 │   └── config/
-│       ├── environment.ts                 # Validación de env vars (Zod)
-│       ├── database.ts                    # Prisma + Redis + sesiones
-│       └── logger.ts                      # Structured logging
-│
+│       ├── environment.ts      # Zod schema · validación en startup · fail-fast
+│       ├── database.ts         # Prisma + Redis + sessions
+│       └── logger.ts           # Structured logging
 ├── tests/
-│   ├── unit/
-│   │   ├── crypto.test.ts                 # Tests cifrado, RUT, PIN
-│   │   ├── auth.test.ts                   # Tests validación PIN seguro
-│   │   ├── format.test.ts                 # Tests formateo CLP, teléfono
-│   │   └── payment.test.ts               # Tests comisiones, límites
-│   └── integration/
-│       └── api.test.ts                    # Tests de API routes
-│
+│   ├── unit/                   # crypto, auth, format, payment (60 tests)
+│   └── integration/            # api.test.ts (13 tests)
+├── docs/
+│   ├── openapi.json            # OpenAPI 3.1 spec (servido en /api/docs)
+│   └── *.md                    # Arquitectura, legal, UX, negocio, seguridad
 ├── infra/
-│   ├── terraform/
-│   │   └── main.tf                        # GCP: Cloud Run, SQL, Redis, KMS, Pub/Sub
-│   └── docker/
-│       ├── Dockerfile                     # Multi-stage build (prod)
-│       └── docker-compose.yml             # Dev: Postgres + Redis + API
-│
+│   ├── terraform/main.tf       # GCP: Cloud Run · SQL · Redis · KMS · Pub/Sub
+│   └── docker/                 # Dockerfile multi-stage · docker-compose.yml
 └── scripts/
-    ├── deploy.sh                          # Deploy a staging/production
-    └── cloudbuild.yaml                    # CI/CD pipeline (Cloud Build)
+    ├── deploy.sh               # Deploy staging/prod con health check
+    └── cloudbuild.yaml         # Cloud Build CI/CD pipeline
 ```
-
-## Mercado Objetivo Inicial: Chile
-
-- **Población**: 19.5 millones
-- **Penetración smartphones**: 92%
-- **Usuarios WhatsApp**: ~13 millones (67%)
-- **Bancarización**: 87% (una de las más altas de LATAM)
-- **Marco regulatorio**: CMF (Comisión para el Mercado Financiero), Ley Fintech 21.521
-
-## Roadmap de Expansión
-
-| Fase | Mercado | Timeline |
-|---|---|---|
-| **Fase 1** | Chile (MVP) | Meses 1-6 |
-| **Fase 2** | Chile (escala) + Colombia | Meses 7-12 |
-| **Fase 3** | Perú + Argentina | Meses 13-18 |
-| **Fase 4** | Brasil + México | Meses 19-24 |
-
-## Inicio Rápido (Desarrollo)
-
-```bash
-# Clonar repositorio
-git clone https://cussen.cl/whatpay
-cd WhatsApp-Payments-LATAM
-
-# Instalar dependencias
-npm install
-
-# Configurar variables de entorno
-cp .env.example .env
-# Editar .env con credenciales de WhatsApp Business API, Transbank, etc.
-
-# Levantar servicios locales (Docker)
-npm run docker:up
-
-# Crear tablas en la base de datos
-npm run db:push
-
-# Ejecutar en modo desarrollo
-npm run dev
-
-# Correr tests
-npm test
-```
-
-## Scripts Disponibles
-
-| Comando | Descripción |
-|---------|-------------|
-| `npm run dev` | Servidor en modo desarrollo (hot reload) |
-| `npm run build` | Compilar TypeScript a JavaScript |
-| `npm start` | Ejecutar build de producción |
-| `npm test` | Correr 73 tests (unit + integración) |
-| `npm run test:coverage` | Tests con reporte de cobertura |
-| `npm run lint` | Linting con ESLint |
-| `npm run docker:up` | Levantar PostgreSQL + Redis locales |
-| `npm run db:push` | Sincronizar schema Prisma con DB |
-| `npm run deploy:staging` | Deploy a staging (GCP Cloud Run) |
-
-## Estado del Proyecto
-
-**Fase actual**: MVP en desarrollo - Core funcional
-**Tests**: 73/73 pasando (5 suites)
-**TypeScript**: 0 errores de compilación
-**Auditoría de seguridad**: P0 y P1 resueltos
-
-### Seguridad implementada
-- AES-256-GCM para datos sensibles (RUT, cuentas bancarias)
-- bcrypt cost 12 para PIN hashing
-- OTP con `crypto.randomInt` (CSPRNG)
-- Transacciones atómicas con `SELECT FOR UPDATE` (anti double-spending)
-- Rate limiting distribuido con Redis (MULTI/EXEC atómico)
-- Idempotencia en webhooks (deduplicación por message ID)
-- JWT con guards por nivel KYC
-- Detección de fraude con 5 reglas + scoring
-
-**Última actualización**: Febrero 2026
 
 ---
 
-*Documentación detallada en la carpeta [docs/](docs/)*
+## Roadmap
 
-*Proyecto desarrollado por Pablo Cussen — [cussen.cl/whatpay](https://cussen.cl/whatpay)*
+| Fase | Mercado | Estado |
+|------|---------|--------|
+| **MVP** | Chile — Core funcional | 🟡 En desarrollo |
+| **Fase 2** | Chile (escala) + Colombia | 📋 Planificado |
+| **Fase 3** | Perú + Argentina | 📋 Planificado |
+| **Fase 4** | Brasil + México | 📋 Planificado |
+
+---
+
+## Estado
+
+- **Tests**: 73/73 pasando (5 suites — unit + integración)
+- **TypeScript**: 0 errores (strict mode)
+- **Seguridad**: P0 y P1 resueltos (PIN hash, wallet credit, idempotencia)
+- **Producción**: API live en GCP Cloud Run — región `southamerica-west1` (Santiago)
+- **Infraestructura**: Terraform provisioned (VPC, Cloud SQL, Memorystore, KMS, Pub/Sub, Cloud Run)
+
+---
+
+*Proyecto desarrollado por [Pablo Cussen](https://cussen.cl) — [cussen.cl/whatpay](https://cussen.cl/whatpay)*
+
+*Documentación técnica detallada en [`docs/`](docs/)*
