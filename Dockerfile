@@ -10,15 +10,15 @@ COPY docs/ ./docs/
 RUN npx prisma generate --schema=src/models/schema.prisma
 RUN npm run build
 
+# Prune devDependencies from builder (native binaries already compiled)
+FROM builder AS pruner
+RUN npm prune --omit=dev
+
 FROM node:20-alpine AS production
 WORKDIR /app
 RUN apk add --no-cache openssl && addgroup -g 1001 -S whatpay && adduser -S whatpay -u 1001
 
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --ignore-scripts
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
-COPY --from=builder /app/node_modules/bcrypt/build ./node_modules/bcrypt/build
+COPY --from=pruner /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/docs ./docs
 
