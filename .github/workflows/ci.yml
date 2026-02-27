@@ -29,10 +29,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
-        continue-on-error: true
 
-      - name: Run tests
-        run: npm test
+      - name: Run tests with coverage
+        run: npm run test:coverage
         env:
           NODE_ENV: test
           DATABASE_URL: postgresql://test:test@localhost:5432/test

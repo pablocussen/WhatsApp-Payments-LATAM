@@ -18,7 +18,18 @@
     "docker:up": "docker compose -f infra/docker/docker-compose.yml up -d",
     "docker:down": "docker compose -f infra/docker/docker-compose.yml down",
     "deploy:staging": "bash scripts/deploy.sh staging",
-    "deploy:prod": "bash scripts/deploy.sh production"
+    "deploy:prod": "bash scripts/deploy.sh production",
+    "docker:logs": "docker compose -f infra/docker/docker-compose.yml logs -f api",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "src/**/*.ts": [
+      "eslint --fix --ext .ts",
+      "prettier --write"
+    ],
+    "tests/**/*.ts": [
+      "prettier --write"
+    ]
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -41,7 +52,9 @@
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "eslint": "^8.57.0",
+    "husky": "^9.0.0",
     "jest": "^29.7.0",
+    "lint-staged": "^15.0.0",
     "prettier": "^3.4.0",
     "prisma": "^5.22.0",
     "ts-jest": "^29.2.0",

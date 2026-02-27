@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+.env*
+.git/
+.husky/
+tests/
+*.test.ts
+jest.config.*
+tsconfig*.json
+CHANGELOG.md
+README.md
+GEMINI_AUDIT_PROMPT.md
+infra/terraform/
+.github/
