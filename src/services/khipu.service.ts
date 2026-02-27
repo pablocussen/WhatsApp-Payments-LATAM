@@ -4,6 +4,8 @@ import { env } from '../config/environment';
 
 const log = createLogger('khipu');
 
+const FETCH_TIMEOUT_MS = 30_000;
+
 // ─── Types ──────────────────────────────────────────────
 
 export interface KhipuPayment {
@@ -16,6 +18,25 @@ export interface KhipuPayment {
 export interface KhipuPaymentStatus {
   paymentId: string;
   status: 'pending' | 'done' | 'expired';
+  amount: number;
+  currency: string;
+  payer_name?: string;
+  payer_email?: string;
+  transaction_id?: string;
+}
+
+// ─── Internal API response shapes ───────────────────────
+
+interface KhipuCreateResponse {
+  payment_id: string;
+  payment_url: string;
+  simplified_transfer_url: string;
+  app_url: string;
+}
+
+interface KhipuStatusResponse {
+  payment_id: string;
+  status: string;
   amount: number;
   currency: string;
   payer_name?: string;
@@ -43,7 +64,7 @@ export class KhipuService {
     amount: number,
     notifyUrl: string,
     returnUrl: string,
-    transactionId: string
+    transactionId: string,
   ): Promise<KhipuPayment> {
     const body = new URLSearchParams({
       subject,
@@ -57,8 +78,9 @@ export class KhipuService {
 
     const response = await fetch(`${this.baseUrl}/payments`, {
       method: 'POST',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: {
-        'Authorization': this.getAuthHeader('POST', '/api/2.0/payments', body.toString()),
+        Authorization: this.getAuthHeader('POST', '/api/2.0/payments', body.toString()),
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: body.toString(),
@@ -70,7 +92,7 @@ export class KhipuService {
       throw new Error(`Khipu error: ${response.status}`);
     }
 
-    const data: any = await response.json();
+    const data = (await response.json()) as KhipuCreateResponse;
 
     log.info('Khipu payment created', {
       paymentId: data.payment_id,
@@ -92,8 +114,9 @@ export class KhipuService {
   async getPaymentStatus(paymentId: string): Promise<KhipuPaymentStatus> {
     const response = await fetch(`${this.baseUrl}/payments/${paymentId}`, {
       method: 'GET',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: {
-        'Authorization': this.getAuthHeader('GET', `/api/2.0/payments/${paymentId}`, ''),
+        Authorization: this.getAuthHeader('GET', `/api/2.0/payments/${paymentId}`, ''),
       },
     });
 
@@ -102,7 +125,7 @@ export class KhipuService {
       throw new Error(`Khipu status error: ${response.status}`);
     }
 
-    const data: any = await response.json();
+    const data = (await response.json()) as KhipuStatusResponse;
 
     return {
       paymentId: data.payment_id,

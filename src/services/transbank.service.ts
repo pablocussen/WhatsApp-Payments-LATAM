@@ -22,6 +22,22 @@ export interface WebPayResult {
   paymentType?: string; // VN (crédito), VD (débito), etc.
 }
 
+// ─── Internal API response shapes ───────────────────────
+
+interface TbkCreateResponse {
+  token: string;
+  url: string;
+}
+interface TbkConfirmResponse {
+  response_code: number;
+  amount: number;
+  buy_order: string;
+  authorization_code: string;
+  transaction_date: string;
+  card_detail?: { card_number: string };
+  payment_type_code: string;
+}
+
 // ─── Transbank WebPay Plus ──────────────────────────────
 
 export class TransbankService {
@@ -72,7 +88,7 @@ export class TransbankService {
       throw new Error(`Transbank error: ${response.status}`);
     }
 
-    const data: any = await response.json();
+    const data = (await response.json()) as TbkCreateResponse;
     log.info('Transbank transaction created', {
       buyOrder,
       amount,
@@ -108,7 +124,7 @@ export class TransbankService {
       return { status: 'FAILED', amount: 0 };
     }
 
-    const data: any = await response.json();
+    const data = (await response.json()) as TbkConfirmResponse;
 
     const result: WebPayResult = {
       status: data.response_code === 0 ? 'AUTHORIZED' : 'FAILED',

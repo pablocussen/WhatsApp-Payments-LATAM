@@ -24,6 +24,10 @@ jobs:
       - name: Install dependencies
         run: HUSKY=0 npm ci
 
+      - name: Dependency security audit
+        run: npm audit --audit-level=high
+        continue-on-error: true  # warn but don't block on transitive vulns
+
       - name: Type check
         run: npx tsc --noEmit
 

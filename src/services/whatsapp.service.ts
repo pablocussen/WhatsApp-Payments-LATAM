@@ -110,21 +110,23 @@ export class WhatsAppService {
     await this.sendTextMessage(to, body);
   }
 
-  parseWebhookMessage(body: any): IncomingMessage | null {
+  parseWebhookMessage(body: unknown): IncomingMessage | null {
     try {
-      const entry = body.entry?.[0];
-      const change = entry?.changes?.[0];
-      const message = change?.value?.messages?.[0];
+      const payload = body as Record<string, unknown>;
+      const entry = (payload.entry as Record<string, unknown>[] | undefined)?.[0];
+      const change = (entry?.changes as Record<string, unknown>[] | undefined)?.[0];
+      const value = change?.value as Record<string, unknown> | undefined;
+      const message = (value?.messages as Record<string, unknown>[] | undefined)?.[0];
 
       if (!message) return null;
 
       return {
-        from: message.from,
-        id: message.id,
-        timestamp: message.timestamp,
-        type: message.type,
-        text: message.text,
-        interactive: message.interactive,
+        from: message.from as string,
+        id: message.id as string,
+        timestamp: message.timestamp as string,
+        type: message.type as IncomingMessage['type'],
+        text: message.text as IncomingMessage['text'],
+        interactive: message.interactive as IncomingMessage['interactive'],
       };
     } catch {
       return null;
