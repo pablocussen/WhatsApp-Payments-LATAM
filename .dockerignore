@@ -7,7 +7,6 @@ coverage/
 tests/
 *.test.ts
 jest.config.*
-tsconfig*.json
 CHANGELOG.md
 README.md
 GEMINI_AUDIT_PROMPT.md
