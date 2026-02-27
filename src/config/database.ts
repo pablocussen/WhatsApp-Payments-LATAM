@@ -38,8 +38,8 @@ const SESSION_TTL = 1800; // 30 minutes
 export interface ConversationSession {
   userId: string;
   waId: string;
-  state: string;          // current conversation state
-  data: Record<string, any>; // temp data for multi-step flows
+  state: string; // current conversation state
+  data: Record<string, unknown>; // temp data for multi-step flows
   lastActivity: number;
 }
 

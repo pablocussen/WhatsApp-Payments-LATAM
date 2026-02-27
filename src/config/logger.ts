@@ -9,7 +9,7 @@ interface LogEntry {
   level: LogLevel;
   service: string;
   message: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 const LOG_LEVELS: Record<LogLevel, number> = {
@@ -35,7 +35,7 @@ function formatEntry(entry: LogEntry): string {
 }
 
 export function createLogger(service: string) {
-  function log(level: LogLevel, message: string, meta?: Record<string, any>) {
+  function log(level: LogLevel, message: string, meta?: Record<string, unknown>) {
     if (!shouldLog(level)) return;
 
     const entry: LogEntry = {
@@ -58,9 +58,9 @@ export function createLogger(service: string) {
   }
 
   return {
-    debug: (msg: string, meta?: Record<string, any>) => log('debug', msg, meta),
-    info: (msg: string, meta?: Record<string, any>) => log('info', msg, meta),
-    warn: (msg: string, meta?: Record<string, any>) => log('warn', msg, meta),
-    error: (msg: string, meta?: Record<string, any>) => log('error', msg, meta),
+    debug: (msg: string, meta?: Record<string, unknown>) => log('debug', msg, meta),
+    info: (msg: string, meta?: Record<string, unknown>) => log('info', msg, meta),
+    warn: (msg: string, meta?: Record<string, unknown>) => log('warn', msg, meta),
+    error: (msg: string, meta?: Record<string, unknown>) => log('error', msg, meta),
   };
 }

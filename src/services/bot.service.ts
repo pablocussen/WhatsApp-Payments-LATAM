@@ -11,6 +11,10 @@ import { isSecurePin } from '../middleware/auth.middleware';
 
 const log = createLogger('bot-service');
 
+// Type-safe accessors for session.data (Record<string, unknown>)
+const sd = (data: Record<string, unknown>, key: string): string => (data[key] as string) ?? '';
+const sdn = (data: Record<string, unknown>, key: string): number => (data[key] as number) ?? 0;
+
 // ─── Conversation States ────────────────────────────────
 
 type State =
@@ -156,7 +160,7 @@ export class BotService {
       }
 
       case 'REGISTER_PIN_CONFIRM': {
-        if (!(await verifyPinHash(text, session.data.pinHash))) {
+        if (!(await verifyPinHash(text, sd(session.data, 'pinHash')))) {
           session.state = 'REGISTER_PIN';
           delete session.data.pinHash;
           await setSession(from, session);
@@ -167,7 +171,7 @@ export class BotService {
         // Create user (text is the confirmed PIN)
         const result = await this.users.createUser({
           waId: from,
-          rut: session.data.rut,
+          rut: sd(session.data, 'rut'),
           pin: text,
         });
 
@@ -381,10 +385,10 @@ export class BotService {
         const payment = await this.transactions.processP2PPayment({
           senderId: userId,
           senderWaId: from,
-          receiverId: session.data.receiverId,
-          amount: session.data.amount,
+          receiverId: sd(session.data, 'receiverId'),
+          amount: sdn(session.data, 'amount'),
           paymentMethod: 'WALLET',
-          description: `Pago a ${session.data.receiverName}`,
+          description: `Pago a ${sd(session.data, 'receiverName')}`,
         });
 
         await deleteSession(from);
@@ -400,7 +404,7 @@ export class BotService {
           [
             'Pago enviado!',
             receipt([
-              `${formatCLP(session.data.amount)} -> ${session.data.receiverName}`,
+              `${formatCLP(sdn(session.data, 'amount'))} -> ${sd(session.data, 'receiverName')}`,
               `Ref: ${payment.reference}`,
               `Saldo: ${payment.senderBalance}`,
             ]),
@@ -410,11 +414,11 @@ export class BotService {
         // Notify receiver
         const sender = await this.users.getUserByWaId(from);
         await this.wa.sendButtonMessage(
-          session.data.receiverPhone,
+          sd(session.data, 'receiverPhone'),
           [
             'Tienes un pago!',
             receipt([
-              `${sender?.name || formatPhone(from)} te envió ${formatCLP(session.data.amount)}`,
+              `${sender?.name || formatPhone(from)} te envió ${formatCLP(sdn(session.data, 'amount'))}`,
               `Ref: ${payment.reference}`,
             ]),
           ].join('\n'),
@@ -504,7 +508,7 @@ export class BotService {
         const description = text.slice(0, 200);
         const link = await this.paymentLinks.createLink({
           merchantId: userId,
-          amount: session.data.amount,
+          amount: sdn(session.data, 'amount'),
           description,
         });
 
@@ -625,7 +629,7 @@ export class BotService {
         return;
       }
       case 'CHANGE_PIN_CONFIRM': {
-        if (!(await verifyPinHash(text, session.data.newPinHash))) {
+        if (!(await verifyPinHash(text, sd(session.data, 'newPinHash')))) {
           session.state = 'CHANGE_PIN_NEW';
           delete session.data.newPinHash;
           await setSession(from, session);
