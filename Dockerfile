@@ -3,7 +3,7 @@ WORKDIR /app
 RUN apk add --no-cache openssl
 
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN HUSKY=0 npm ci
 COPY tsconfig.json ./
 COPY src/ ./src/
 COPY docs/ ./docs/
@@ -15,7 +15,7 @@ WORKDIR /app
 RUN apk add --no-cache openssl && addgroup -g 1001 -S whatpay && adduser -S whatpay -u 1001
 
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev
+RUN HUSKY=0 npm ci --omit=dev
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
 COPY --from=builder /app/dist ./dist
