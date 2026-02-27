@@ -497,8 +497,11 @@ export class BotService {
     switch (session.state as State) {
       case 'CHARGE_ENTER_AMOUNT': {
         const amount = parseInt(text.replace(/[$.]/g, ''), 10);
-        if (isNaN(amount) || amount < 100) {
-          await this.wa.sendTextMessage(from, 'Monto inválido. Mínimo $100. Escribe el monto:');
+        if (isNaN(amount) || amount < 100 || amount > 50_000_000) {
+          await this.wa.sendTextMessage(
+            from,
+            'Monto inválido. Debe estar entre $100 y $50.000.000. Escribe el monto:',
+          );
           return;
         }
         session.data.amount = amount;

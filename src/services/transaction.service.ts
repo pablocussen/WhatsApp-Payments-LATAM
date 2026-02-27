@@ -61,6 +61,11 @@ export class TransactionService {
   async processP2PPayment(req: PaymentRequest): Promise<PaymentResponse> {
     const { senderId, receiverId, amount, senderWaId } = req;
 
+    // 0. Self-payment guard
+    if (senderId === receiverId) {
+      return { success: false, error: 'No puedes pagarte a ti mismo.' };
+    }
+
     // 1. Validate amount
     if (amount < 100) {
       return { success: false, error: 'Monto mínimo: $100 CLP.' };

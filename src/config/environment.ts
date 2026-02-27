@@ -31,6 +31,7 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRATION: z.string().default('30m'),
   ENCRYPTION_KEY_ID: z.string().default('local'),
+  ENCRYPTION_KEY_HEX: z.string().length(64).optional(), // Required in production
 
   // Google Cloud
   GCP_PROJECT_ID: z.string().default('whatpay-cl'),
@@ -53,6 +54,18 @@ export function loadEnvironment(): Environment {
   if (!result.success) {
     console.error('Invalid environment variables:', result.error.flatten().fieldErrors);
     process.exit(1);
+  }
+
+  if (result.data.NODE_ENV === 'production') {
+    if (!result.data.ENCRYPTION_KEY_HEX) {
+      console.error('[SECURITY] ENCRYPTION_KEY_HEX is required in production');
+      process.exit(1);
+    }
+    if (!result.data.WHATSAPP_APP_SECRET) {
+      console.warn(
+        '[SECURITY] WHATSAPP_APP_SECRET not set — webhook signature verification disabled',
+      );
+    }
   }
 
   return result.data;

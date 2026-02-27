@@ -14,7 +14,7 @@ const wallets = new WalletService();
 // ─── Schemas ────────────────────────────────────────────
 
 const createLinkSchema = z.object({
-  amount: z.number().min(100).optional(),
+  amount: z.number().int().min(100).max(50_000_000).optional(),
   description: z.string().max(500).optional(),
   expiresInHours: z.number().min(1).max(720).optional(), // max 30 days
   maxUses: z.number().min(1).max(1000).optional(),
