@@ -98,8 +98,10 @@ export class WalletService {
 
     // Atomic transfer within a transaction
     const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Lock sender wallet and check balance
-      const senderWallet = await tx.wallet.findUnique({ where: { userId: senderId } });
+      // Lock sender wallet row (SELECT ... FOR UPDATE) to prevent double-spending
+      const [senderWallet] = await tx.$queryRaw<{ balance: string }[]>`
+        SELECT balance FROM wallets WHERE user_id = ${senderId}::uuid FOR UPDATE
+      `;
       if (!senderWallet || Number(senderWallet.balance) < amount) {
         throw new InsufficientFundsError(Number(senderWallet?.balance ?? 0), amount);
       }

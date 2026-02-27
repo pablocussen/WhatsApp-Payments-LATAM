@@ -54,44 +54,59 @@ export class UserService {
       };
     }
 
-    // Check if user already exists
-    const existingByPhone = await prisma.user.findUnique({ where: { waId: input.waId } });
-    if (existingByPhone) {
-      return { success: false, error: 'Este número ya tiene una cuenta WhatPay.' };
-    }
-
     const rutHashValue = hmacHash(rut, this.encryptionKey);
-    const existingByRut = await prisma.user.findUnique({ where: { rutHash: rutHashValue } });
-    if (existingByRut) {
-      return { success: false, error: 'Este RUT ya está registrado en WhatPay.' };
-    }
 
-    // Create user + wallet in a transaction
+    // Compute these before the transaction to minimize lock time
     const pinHash = await hashPin(input.pin);
     const encryptedRut = encrypt(rut, this.encryptionKey);
 
-    const user = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const newUser = await tx.user.create({
-        data: {
-          waId: input.waId,
-          rut: encryptedRut,
-          rutHash: rutHashValue,
-          name: input.name || null,
-          pinHash,
-          kycLevel: 'BASIC',
-        },
-      });
+    // Uniqueness checks AND user creation in a single transaction to prevent
+    // race conditions where two concurrent requests register the same phone/RUT
+    let user;
+    try {
+      user = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const existingByPhone = await tx.user.findUnique({ where: { waId: input.waId } });
+        if (existingByPhone) {
+          throw Object.assign(new Error('Este número ya tiene una cuenta WhatPay.'), {
+            __conflict: true,
+          });
+        }
 
-      await tx.wallet.create({
-        data: {
-          userId: newUser.id,
-          balance: 0,
-          currency: 'CLP',
-        },
-      });
+        const existingByRut = await tx.user.findUnique({ where: { rutHash: rutHashValue } });
+        if (existingByRut) {
+          throw Object.assign(new Error('Este RUT ya está registrado en WhatPay.'), {
+            __conflict: true,
+          });
+        }
 
-      return newUser;
-    });
+        const newUser = await tx.user.create({
+          data: {
+            waId: input.waId,
+            rut: encryptedRut,
+            rutHash: rutHashValue,
+            name: input.name || null,
+            pinHash,
+            kycLevel: 'BASIC',
+          },
+        });
+
+        await tx.wallet.create({
+          data: { userId: newUser.id, balance: 0, currency: 'CLP' },
+        });
+
+        return newUser;
+      });
+    } catch (err: unknown) {
+      const error = err as Error & { __conflict?: boolean; code?: string };
+      if (error.__conflict) {
+        return { success: false, error: error.message };
+      }
+      // P2002 = unique constraint violation (race condition fallback)
+      if (error.code === 'P2002') {
+        return { success: false, error: 'El número o RUT ya está registrado.' };
+      }
+      throw err;
+    }
 
     log.info('User created', { userId: user.id, kycLevel: 'BASIC' });
 

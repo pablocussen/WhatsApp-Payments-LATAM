@@ -78,14 +78,6 @@ export class TransactionService {
       };
     }
 
-    const monthlyTotal = await this.wallet.getMonthlyTotal(senderId);
-    if (monthlyTotal + amount > limits.monthly) {
-      return {
-        success: false,
-        error: `Superarías tu límite mensual de ${formatCLP(limits.monthly)}.`,
-      };
-    }
-
     // 3. Fraud check
     const fraudResult = await this.fraud.checkTransaction({
       senderId,
@@ -141,6 +133,19 @@ export class TransactionService {
           throw new InsufficientFundsError(Number(senderWallet?.balance ?? 0), amount);
         }
 
+        // Monthly limit check INSIDE transaction: wallet row is locked so no concurrent
+        // payment can slip in between the aggregate read and the debit below
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+        const monthlyAgg = await tx.transaction.aggregate({
+          where: { senderId, status: 'COMPLETED', createdAt: { gte: startOfMonth } },
+          _sum: { amount: true },
+        });
+        if (Number(monthlyAgg._sum.amount ?? 0) + amount > limits.monthly) {
+          throw new MonthlyLimitExceededError(limits.monthly);
+        }
+
         await tx.wallet.update({
           where: { userId: senderId },
           data: { balance: { decrement: amount } },
@@ -179,7 +184,7 @@ export class TransactionService {
         senderBalance: formatCLP(result.senderBalance),
       };
     } catch (err) {
-      if (err instanceof InsufficientFundsError) {
+      if (err instanceof InsufficientFundsError || err instanceof MonthlyLimitExceededError) {
         return { success: false, error: err.message };
       }
 
@@ -251,5 +256,14 @@ export class TransactionService {
   private calculateFee(amount: number, method: string): number {
     const config = FEES[method] || FEES.WALLET;
     return Math.round(amount * config.percentage) + config.fixed;
+  }
+}
+
+// ─── Errors ─────────────────────────────────────────────
+
+class MonthlyLimitExceededError extends Error {
+  constructor(limit: number) {
+    super(`Superarías tu límite mensual de ${formatCLP(limit)}.`);
+    this.name = 'MonthlyLimitExceededError';
   }
 }
