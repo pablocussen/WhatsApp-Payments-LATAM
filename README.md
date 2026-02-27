@@ -4,7 +4,7 @@
 > Backend en Node.js + TypeScript, desplegado en GCP Cloud Run (Santiago).
 
 [![CI](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml/badge.svg)](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-108%2F108%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
+[![Tests](https://img.shields.io/badge/tests-129%2F129%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
 [![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![GCP Cloud Run](https://img.shields.io/badge/deployed-GCP%20Cloud%20Run-4285F4?logo=googlecloud&logoColor=white)](https://whatpay-api-930472612593.southamerica-west1.run.app/health)
