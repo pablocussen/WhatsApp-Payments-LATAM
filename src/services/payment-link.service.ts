@@ -111,11 +111,16 @@ export class PaymentLinkService {
     };
   }
 
-  async incrementUse(linkId: string): Promise<void> {
-    await prisma.paymentLink.update({
-      where: { id: linkId },
-      data: { currentUses: { increment: 1 } },
-    });
+  // Returns true if incremented, false if link already at max uses (idempotency guard)
+  async incrementUse(linkId: string): Promise<boolean> {
+    const affected = await prisma.$executeRaw`
+      UPDATE payment_links
+      SET current_uses = current_uses + 1
+      WHERE id = ${linkId}::uuid
+        AND current_uses < max_uses
+        AND is_active = true
+    `;
+    return affected > 0;
   }
 
   async deactivateLink(linkId: string, merchantId: string): Promise<boolean> {

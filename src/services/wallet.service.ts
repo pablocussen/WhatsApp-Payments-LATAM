@@ -135,6 +135,56 @@ export class WalletService {
     };
   }
 
+  async topup(
+    userId: string,
+    amount: number,
+    method: 'WEBPAY_CREDIT' | 'WEBPAY_DEBIT' | 'KHIPU',
+    externalRef: string,
+    description: string,
+  ): Promise<WalletBalance> {
+    if (amount <= 0) throw new Error('Amount must be positive');
+
+    let wallet;
+    try {
+      wallet = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        // Creating transaction record first: unique reference prevents double-credit
+        await tx.transaction.create({
+          data: {
+            senderId: userId,
+            receiverId: userId,
+            amount,
+            status: 'COMPLETED',
+            paymentMethod: method,
+            description,
+            reference: externalRef,
+            completedAt: new Date(),
+          },
+        });
+
+        return tx.wallet.update({
+          where: { userId },
+          data: { balance: { increment: amount } },
+        });
+      });
+    } catch (err: unknown) {
+      // P2002 = unique constraint violation → already processed (idempotent)
+      if ((err as { code?: string }).code === 'P2002') {
+        log.warn('Top-up already processed (duplicate reference)', { userId, externalRef });
+        return this.getBalance(userId);
+      }
+      throw err;
+    }
+
+    log.info('Wallet topped up', { userId, amount, method, externalRef });
+
+    const newBalance = Number(wallet.balance);
+    return {
+      balance: newBalance,
+      formatted: formatCLP(newBalance),
+      currency: wallet.currency,
+    };
+  }
+
   async getMonthlyTotal(userId: string): Promise<number> {
     const startOfMonth = new Date();
     startOfMonth.setDate(1);

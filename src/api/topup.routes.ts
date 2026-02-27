@@ -37,16 +37,19 @@ router.post(
     }
     const { amount } = parsed.data;
 
-    const buyOrder = generateReference().replace('#', '');
+    // ref = '#WP-2026-XXXXXXXX' (our internal reference, stored for Transaction record)
+    // buyOrder = 'WP-2026-XXXXXXXX' (Transbank doesn't accept '#')
+    const ref = generateReference();
+    const buyOrder = ref.replace('#', '');
     const returnUrl = `${env.APP_BASE_URL}/api/v1/topup/webpay/callback`;
 
     const transaction = await transbank.createTransaction(buyOrder, amount, returnUrl);
 
-    // Guardar mapping buyOrder → {userId, waId, amount} para recuperarlo en el callback
+    // Guardar mapping buyOrder → {userId, waId, amount, ref} para recuperarlo en el callback
     const redis = getRedis();
     await redis.set(
       `topup:webpay:${buyOrder}`,
-      JSON.stringify({ userId: req.user!.userId, waId: req.user!.waId, amount }),
+      JSON.stringify({ userId: req.user!.userId, waId: req.user!.waId, amount, ref }),
       { EX: TOPUP_MAPPING_TTL },
     );
 
@@ -93,17 +96,19 @@ router.post('/webpay/callback', async (req: Request, res: Response) => {
       return res.redirect(`${env.APP_BASE_URL}/topup/error?reason=mapping_not_found`);
     }
 
-    // Eliminar el mapping para evitar doble acreditación
-    await redis.del(key);
+    const mapping: { userId: string; waId: string; amount: number; ref: string } = JSON.parse(raw);
 
-    const mapping: { userId: string; waId: string; amount: number } = JSON.parse(raw);
-
-    // Acreditar wallet
-    await wallets.credit(
+    // Acreditar wallet con Transaction record atómico (idempotente vía reference único)
+    // Redis key se elimina DESPUÉS del éxito para permitir reintentos si falla la DB
+    await wallets.topup(
       mapping.userId,
       mapping.amount,
-      `Recarga WebPay ${(token as string).slice(0, 8)}`,
+      'WEBPAY_CREDIT',
+      mapping.ref,
+      `Recarga WebPay ${result.buyOrder}`,
     );
+
+    await redis.del(key);
 
     log.info('WebPay top-up credited', {
       userId: mapping.userId,
@@ -209,11 +214,17 @@ router.post('/khipu/notify', async (req: Request, res: Response) => {
 
     const mapping: { userId: string; waId: string; amount: number } = JSON.parse(raw);
 
-    // Eliminar el mapping para evitar doble acreditación
-    await redis.del(key);
+    // Acreditar wallet con Transaction record atómico (idempotente vía reference único)
+    // Redis key se elimina DESPUÉS del éxito para permitir reintentos si falla la DB
+    await wallets.topup(
+      mapping.userId,
+      mapping.amount,
+      'KHIPU',
+      `KHIPU:${status.paymentId}`,
+      `Recarga Khipu ${status.paymentId}`,
+    );
 
-    // Acreditar wallet
-    await wallets.credit(mapping.userId, mapping.amount, `Recarga Khipu ${status.paymentId}`);
+    await redis.del(key);
 
     log.info('Khipu top-up credited', {
       userId: mapping.userId,
