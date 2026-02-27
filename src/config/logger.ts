@@ -48,6 +48,7 @@ export function createLogger(service: string) {
 
     const formatted = formatEntry(entry);
 
+    /* eslint-disable no-console */
     if (level === 'error') {
       console.error(formatted);
     } else if (level === 'warn') {
@@ -55,6 +56,7 @@ export function createLogger(service: string) {
     } else {
       console.log(formatted);
     }
+    /* eslint-enable no-console */
   }
 
   return {

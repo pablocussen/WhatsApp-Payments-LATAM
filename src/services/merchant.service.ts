@@ -29,7 +29,6 @@ export interface SettlementSummary {
 // ─── Merchant Service ───────────────────────────────────
 
 export class MerchantService {
-
   async getDashboard(merchantId: string): Promise<MerchantDashboard> {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -105,7 +104,7 @@ export class MerchantService {
     ]);
 
     return {
-      transactions: transactions.map((tx: any) => ({
+      transactions: transactions.map((tx: (typeof transactions)[number]) => ({
         id: tx.id,
         amount: formatCLP(Number(tx.amount)),
         amountRaw: Number(tx.amount),
@@ -126,7 +125,11 @@ export class MerchantService {
     };
   }
 
-  async generateSettlementReport(merchantId: string, startDate: Date, endDate: Date): Promise<SettlementSummary> {
+  async generateSettlementReport(
+    merchantId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<SettlementSummary> {
     const stats = await prisma.transaction.aggregate({
       where: {
         receiverId: merchantId,

@@ -10,10 +10,10 @@ const log = createLogger('payment-link-service');
 
 export interface CreateLinkInput {
   merchantId: string;
-  amount?: number;          // null = open amount
+  amount?: number; // null = open amount
   description?: string;
-  expiresInHours?: number;  // default 24
-  maxUses?: number;         // default 1
+  expiresInHours?: number; // default 24
+  maxUses?: number; // default 1
 }
 
 export interface PaymentLinkInfo {
@@ -32,7 +32,6 @@ export interface PaymentLinkInfo {
 // ─── Payment Link Service ───────────────────────────────
 
 export class PaymentLinkService {
-
   async createLink(input: CreateLinkInput): Promise<PaymentLinkInfo> {
     const shortCode = generateShortCode(6);
     const expiresAt = input.expiresInHours
@@ -141,7 +140,7 @@ export class PaymentLinkService {
       },
     });
 
-    return links.map((link: any) => ({
+    return links.map((link: (typeof links)[number]) => ({
       id: link.id,
       shortCode: link.shortCode,
       url: `${env.PAYMENT_LINK_BASE_URL}/${link.shortCode}`,

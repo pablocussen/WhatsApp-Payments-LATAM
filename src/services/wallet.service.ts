@@ -1,4 +1,5 @@
 import { prisma } from '../config/database';
+import type { Prisma } from '@prisma/client';
 import { createLogger } from '../config/logger';
 import { formatCLP } from '../utils/format';
 
@@ -23,7 +24,6 @@ export interface WalletMovement {
 // ─── Wallet Service ─────────────────────────────────────
 
 export class WalletService {
-
   async getBalance(userId: string): Promise<WalletBalance> {
     const wallet = await prisma.wallet.findUnique({
       where: { userId },
@@ -87,13 +87,13 @@ export class WalletService {
     senderId: string,
     receiverId: string,
     amount: number,
-    description: string
+    description: string,
   ): Promise<{ senderBalance: WalletBalance; receiverBalance: WalletBalance }> {
     if (senderId === receiverId) throw new Error('Cannot transfer to yourself');
     if (amount <= 0) throw new Error('Amount must be positive');
 
     // Atomic transfer within a transaction
-    const result = await prisma.$transaction(async (tx: any) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Lock sender wallet and check balance
       const senderWallet = await tx.wallet.findUnique({ where: { userId: senderId } });
       if (!senderWallet || Number(senderWallet.balance) < amount) {
@@ -156,7 +156,9 @@ export class InsufficientFundsError extends Error {
   public requestedAmount: number;
 
   constructor(currentBalance: number, requestedAmount: number) {
-    super(`Saldo insuficiente. Tienes ${formatCLP(currentBalance)} y necesitas ${formatCLP(requestedAmount)}.`);
+    super(
+      `Saldo insuficiente. Tienes ${formatCLP(currentBalance)} y necesitas ${formatCLP(requestedAmount)}.`,
+    );
     this.name = 'InsufficientFundsError';
     this.currentBalance = currentBalance;
     this.requestedAmount = requestedAmount;

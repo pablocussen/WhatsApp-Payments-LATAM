@@ -19,7 +19,9 @@ export async function connectRedis(): Promise<RedisClientType> {
 
   redis = createClient({ url: env.REDIS_URL });
 
+  // eslint-disable-next-line no-console
   redis.on('error', (err) => console.error('[Redis] Error:', err));
+  // eslint-disable-next-line no-console
   redis.on('connect', () => console.log('[Redis] Connected'));
 
   await redis.connect();

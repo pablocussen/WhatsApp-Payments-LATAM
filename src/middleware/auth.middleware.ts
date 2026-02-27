@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { compare } from 'bcrypt';
+import type { RedisClientType } from 'redis';
 
 // ─── PIN Validation ─────────────────────────────────────
 
@@ -18,13 +19,11 @@ export async function verifyPin(
   inputPin: string,
   storedHash: string,
   currentAttempts: number,
-  lockedUntil: Date | null
+  lockedUntil: Date | null,
 ): Promise<{ success: boolean; shouldLock: boolean; message: string }> {
   // Check if account is currently locked
   if (lockedUntil && new Date() < lockedUntil) {
-    const remainingMinutes = Math.ceil(
-      (lockedUntil.getTime() - Date.now()) / 60_000
-    );
+    const remainingMinutes = Math.ceil((lockedUntil.getTime() - Date.now()) / 60_000);
     return {
       success: false,
       shouldLock: false,
@@ -64,10 +63,10 @@ export function rateLimit(maxRequests: number, windowMs: number) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const key = `rl:${req.ip || 'unknown'}`;
 
-    let redis: any;
+    let redis: RedisClientType | undefined;
     try {
       const { getRedis } = await import('../config/database');
-      redis = getRedis();
+      redis = getRedis() as RedisClientType;
     } catch {
       // Redis not connected yet (startup), fall through
       return next();
@@ -75,10 +74,7 @@ export function rateLimit(maxRequests: number, windowMs: number) {
 
     try {
       // Atomic INCR + EXPIRE to prevent zombie keys
-      const results = await redis.multi()
-        .incr(key)
-        .expire(key, windowSec)
-        .exec();
+      const results = await redis.multi().incr(key).expire(key, windowSec).exec();
 
       const count = results[0] as number;
 

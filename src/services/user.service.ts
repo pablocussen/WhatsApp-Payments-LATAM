@@ -1,4 +1,5 @@
 import { prisma } from '../config/database';
+import type { Prisma } from '@prisma/client';
 import { createLogger } from '../config/logger';
 import { hashPin, verifyPinHash, validateRut, cleanRut, hmacHash, encrypt } from '../utils/crypto';
 import { isSecurePin } from '../middleware/auth.middleware';
@@ -8,10 +9,10 @@ const log = createLogger('user-service');
 // ─── Types ──────────────────────────────────────────────
 
 export interface CreateUserInput {
-  waId: string;           // WhatsApp ID (phone number)
-  rut: string;            // Chilean RUT
+  waId: string; // WhatsApp ID (phone number)
+  rut: string; // Chilean RUT
   name?: string;
-  pin: string;            // 6-digit PIN
+  pin: string; // 6-digit PIN
 }
 
 export interface UserProfile {
@@ -32,11 +33,13 @@ export class UserService {
     // In production, this comes from Cloud KMS
     this.encryptionKey = Buffer.from(
       encryptionKeyHex || process.env.ENCRYPTION_KEY_HEX || '0'.repeat(64),
-      'hex'
+      'hex',
     );
   }
 
-  async createUser(input: CreateUserInput): Promise<{ success: boolean; userId?: string; error?: string }> {
+  async createUser(
+    input: CreateUserInput,
+  ): Promise<{ success: boolean; userId?: string; error?: string }> {
     // Validate RUT
     const rut = cleanRut(input.rut);
     if (!validateRut(rut)) {
@@ -45,7 +48,10 @@ export class UserService {
 
     // Validate PIN
     if (!isSecurePin(input.pin)) {
-      return { success: false, error: 'PIN inseguro. No uses secuencias (123456) ni números repetidos (111111).' };
+      return {
+        success: false,
+        error: 'PIN inseguro. No uses secuencias (123456) ni números repetidos (111111).',
+      };
     }
 
     // Check if user already exists
@@ -64,7 +70,7 @@ export class UserService {
     const pinHash = await hashPin(input.pin);
     const encryptedRut = encrypt(rut, this.encryptionKey);
 
-    const user = await prisma.$transaction(async (tx: any) => {
+    const user = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const newUser = await tx.user.create({
         data: {
           waId: input.waId,
@@ -163,14 +169,21 @@ export class UserService {
 
     if (shouldLock) {
       log.warn('Account locked', { userId: user.id, reason: 'max_pin_attempts' });
-      return { success: false, message: 'Cuenta bloqueada por seguridad (15 min). Si no fuiste tú, contacta /soporte.' };
+      return {
+        success: false,
+        message: 'Cuenta bloqueada por seguridad (15 min). Si no fuiste tú, contacta /soporte.',
+      };
     }
 
     const remaining = 3 - newAttempts;
     return { success: false, message: `PIN incorrecto. Te quedan ${remaining} intentos.` };
   }
 
-  async changePin(waId: string, currentPin: string, newPin: string): Promise<{ success: boolean; message: string }> {
+  async changePin(
+    waId: string,
+    currentPin: string,
+    newPin: string,
+  ): Promise<{ success: boolean; message: string }> {
     const verify = await this.verifyUserPin(waId, currentPin);
     if (!verify.success) return verify;
 

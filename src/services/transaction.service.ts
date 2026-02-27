@@ -1,4 +1,5 @@
 import { prisma } from '../config/database';
+import type { Prisma } from '@prisma/client';
 import { createLogger } from '../config/logger';
 import { generateReference } from '../utils/crypto';
 import { formatCLP, formatDateCL, divider } from '../utils/format';
@@ -38,17 +39,17 @@ interface FeeConfig {
 // ─── Fee Table ──────────────────────────────────────────
 
 const FEES: Record<string, FeeConfig> = {
-  WALLET:        { percentage: 0.015, fixed: 0 },
+  WALLET: { percentage: 0.015, fixed: 0 },
   WEBPAY_CREDIT: { percentage: 0.028, fixed: 50 },
-  WEBPAY_DEBIT:  { percentage: 0.018, fixed: 50 },
-  KHIPU:         { percentage: 0.01,  fixed: 0 },
+  WEBPAY_DEBIT: { percentage: 0.018, fixed: 50 },
+  KHIPU: { percentage: 0.01, fixed: 0 },
 };
 
 // Transaction limits by KYC level
 const LIMITS: Record<string, { perTx: number; monthly: number }> = {
-  BASIC:        { perTx: 50_000,    monthly: 200_000 },
-  INTERMEDIATE: { perTx: 500_000,   monthly: 2_000_000 },
-  FULL:         { perTx: 2_000_000, monthly: 50_000_000 },
+  BASIC: { perTx: 50_000, monthly: 200_000 },
+  INTERMEDIATE: { perTx: 500_000, monthly: 2_000_000 },
+  FULL: { perTx: 2_000_000, monthly: 50_000_000 },
 };
 
 // ─── Transaction Service ────────────────────────────────
@@ -71,12 +72,18 @@ export class TransactionService {
 
     const limits = LIMITS[sender.kycLevel] || LIMITS.BASIC;
     if (amount > limits.perTx) {
-      return { success: false, error: `Monto máximo por transacción: ${formatCLP(limits.perTx)}. Sube tu nivel de cuenta.` };
+      return {
+        success: false,
+        error: `Monto máximo por transacción: ${formatCLP(limits.perTx)}. Sube tu nivel de cuenta.`,
+      };
     }
 
     const monthlyTotal = await this.wallet.getMonthlyTotal(senderId);
     if (monthlyTotal + amount > limits.monthly) {
-      return { success: false, error: `Superarías tu límite mensual de ${formatCLP(limits.monthly)}.` };
+      return {
+        success: false,
+        error: `Superarías tu límite mensual de ${formatCLP(limits.monthly)}.`,
+      };
     }
 
     // 3. Fraud check
@@ -92,7 +99,8 @@ export class TransactionService {
       log.warn('Payment blocked by fraud', { senderId, amount, score: fraudResult.score });
       return {
         success: false,
-        error: 'Esta transacción fue bloqueada por seguridad. Si crees que es un error, contacta /soporte.',
+        error:
+          'Esta transacción fue bloqueada por seguridad. Si crees que es un error, contacta /soporte.',
         fraudBlocked: true,
       };
     }
@@ -104,7 +112,7 @@ export class TransactionService {
 
     // 5. Execute payment atomically (record + transfer + status in one transaction)
     try {
-      const result = await prisma.$transaction(async (tx: any) => {
+      const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // Create transaction record
         const transaction = await tx.transaction.create({
           data: {
@@ -126,7 +134,7 @@ export class TransactionService {
         });
 
         // Lock sender wallet row (SELECT ... FOR UPDATE) to prevent double-spending
-        const [senderWallet]: any[] = await tx.$queryRaw`
+        const [senderWallet] = await tx.$queryRaw<{ balance: string }[]>`
           SELECT balance FROM wallets WHERE user_id = ${senderId}::uuid FOR UPDATE
         `;
         if (!senderWallet || Number(senderWallet.balance) < amount) {
@@ -198,12 +206,12 @@ export class TransactionService {
       return 'No tienes transacciones aún.';
     }
 
-    const lines = transactions.map((tx: any) => {
+    const lines = transactions.map((tx: (typeof transactions)[number]) => {
       const isSender = tx.senderId === userId;
       const direction = isSender ? '↑ Enviado' : '↓ Recibido';
       const otherParty = isSender
-        ? (tx.receiver.name || tx.receiver.waId)
-        : (tx.sender.name || tx.sender.waId);
+        ? tx.receiver.name || tx.receiver.waId
+        : tx.sender.name || tx.sender.waId;
       const sign = isSender ? '-' : '+';
       const amount = formatCLP(Number(tx.amount));
       const date = formatDateCL(tx.createdAt);
@@ -211,7 +219,9 @@ export class TransactionService {
       return `${direction} ${sign}${amount} → ${otherParty}\n  ${tx.reference} | ${date}`;
     });
 
-    return [`Últimas ${transactions.length} transacciones:`, divider(), ...lines, divider()].join('\n');
+    return [`Últimas ${transactions.length} transacciones:`, divider(), ...lines, divider()].join(
+      '\n',
+    );
   }
 
   async getTransactionStats(userId: string): Promise<{
