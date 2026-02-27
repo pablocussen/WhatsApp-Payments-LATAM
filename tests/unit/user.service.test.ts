@@ -159,3 +159,95 @@ describe('UserService.createUser', () => {
     });
   });
 });
+
+// ─── verifyUserPin ───────────────────────────────────────
+
+describe('UserService.verifyUserPin', () => {
+  let svc: UserService;
+
+  beforeEach(() => {
+    svc = new UserService('0'.repeat(64));
+    jest.clearAllMocks();
+    mockPrisma.user.update.mockResolvedValue({});
+  });
+
+  it('returns failure when user not found', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue(null);
+    const result = await svc.verifyUserPin('+56912345678', VALID_PIN);
+    expect(result.success).toBe(false);
+    expect(result.isLocked).toBeUndefined();
+  });
+
+  it('returns isLocked=true when account is currently locked', async () => {
+    const lockedUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 min in future
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'uid-1',
+      pinHash: '$2b$12$fakehash',
+      pinAttempts: 0,
+      lockedUntil,
+    });
+
+    const result = await svc.verifyUserPin('+56912345678', VALID_PIN);
+
+    expect(result.success).toBe(false);
+    expect(result.isLocked).toBe(true);
+    expect(result.message).toMatch(/bloqueada/i);
+  });
+
+  it('returns success=true and resets attempts on correct PIN', async () => {
+    // Hash the valid PIN so verifyPinHash succeeds
+    const { hashPin } = await import('../../src/utils/crypto');
+    const hash = await hashPin(VALID_PIN);
+
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'uid-1',
+      pinHash: hash,
+      pinAttempts: 1, // some previous failures
+      lockedUntil: null,
+    });
+
+    const result = await svc.verifyUserPin('+56912345678', VALID_PIN);
+
+    expect(result.success).toBe(true);
+    // Should reset attempts to 0
+    const updateArgs = mockPrisma.user.update.mock.calls[0][0].data;
+    expect(updateArgs.pinAttempts).toBe(0);
+    expect(updateArgs.lockedUntil).toBeNull();
+  });
+
+  it('increments attempt count on wrong PIN (1st attempt)', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'uid-1',
+      pinHash: '$2b$12$intentionally_wrong_hash',
+      pinAttempts: 0,
+      lockedUntil: null,
+    });
+
+    const result = await svc.verifyUserPin('+56912345678', 'wrongpin');
+
+    expect(result.success).toBe(false);
+    expect(result.isLocked).toBeUndefined(); // not locked yet
+    expect(result.message).toMatch(/2 intentos/i);
+    const updateArgs = mockPrisma.user.update.mock.calls[0][0].data;
+    expect(updateArgs.pinAttempts).toBe(1);
+  });
+
+  it('locks account and returns isLocked=true after 3rd failed attempt', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'uid-1',
+      pinHash: '$2b$12$intentionally_wrong_hash',
+      pinAttempts: 2, // 2 failures already
+      lockedUntil: null,
+    });
+
+    const result = await svc.verifyUserPin('+56912345678', 'wrongpin');
+
+    expect(result.success).toBe(false);
+    expect(result.isLocked).toBe(true);
+    expect(result.message).toMatch(/bloqueada/i);
+    // On lock: pinAttempts resets to 0, lockedUntil is set
+    const updateArgs = mockPrisma.user.update.mock.calls[0][0].data;
+    expect(updateArgs.pinAttempts).toBe(0);
+    expect(updateArgs.lockedUntil).toBeInstanceOf(Date);
+  });
+});
