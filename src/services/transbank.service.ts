@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { createLogger } from '../config/logger';
 import { env } from '../config/environment';
 
@@ -75,7 +76,7 @@ export class TransbankService {
         },
         body: JSON.stringify({
           buy_order: buyOrder,
-          session_id: `session_${Date.now()}`,
+          session_id: randomUUID(),
           amount,
           return_url: returnUrl,
         }),

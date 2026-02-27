@@ -378,9 +378,7 @@ export class BotService {
         // Verify PIN
         const pinResult = await this.users.verifyUserPin(from, text);
         if (!pinResult.success) {
-          if (pinResult.message.includes('bloqueada')) {
-            await deleteSession(from);
-          }
+          if (pinResult.isLocked) await deleteSession(from);
           await this.wa.sendTextMessage(from, pinResult.message);
           return;
         }
@@ -615,8 +613,8 @@ export class BotService {
       case 'CHANGE_PIN_CURRENT': {
         const verify = await this.users.verifyUserPin(from, text);
         if (!verify.success) {
+          if (verify.isLocked) await deleteSession(from);
           await this.wa.sendTextMessage(from, verify.message);
-          if (verify.message.includes('bloqueada')) await deleteSession(from);
           return;
         }
         session.state = 'CHANGE_PIN_NEW';

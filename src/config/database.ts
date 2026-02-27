@@ -1,6 +1,9 @@
 import { PrismaClient } from '@prisma/client';
 import { createClient, RedisClientType } from 'redis';
 import { env } from './environment';
+import { createLogger } from './logger';
+
+const log = createLogger('redis');
 
 // ─── Prisma (PostgreSQL) ────────────────────────────────
 
@@ -19,10 +22,8 @@ export async function connectRedis(): Promise<RedisClientType> {
 
   redis = createClient({ url: env.REDIS_URL });
 
-  // eslint-disable-next-line no-console
-  redis.on('error', (err) => console.error('[Redis] Error:', err));
-  // eslint-disable-next-line no-console
-  redis.on('connect', () => console.log('[Redis] Connected'));
+  redis.on('error', (err) => log.error('Redis error', { error: (err as Error).message }));
+  redis.on('connect', () => log.info('Redis connected'));
 
   await redis.connect();
   return redis;

@@ -143,7 +143,10 @@ export class UserService {
     return user;
   }
 
-  async verifyUserPin(waId: string, pin: string): Promise<{ success: boolean; message: string }> {
+  async verifyUserPin(
+    waId: string,
+    pin: string,
+  ): Promise<{ success: boolean; message: string; isLocked?: boolean }> {
     const user = await prisma.user.findUnique({
       where: { waId },
       select: { id: true, pinHash: true, pinAttempts: true, lockedUntil: true },
@@ -156,7 +159,11 @@ export class UserService {
     // Check lockout
     if (user.lockedUntil && new Date() < user.lockedUntil) {
       const mins = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60000);
-      return { success: false, message: `Cuenta bloqueada. Intenta en ${mins} minutos.` };
+      return {
+        success: false,
+        isLocked: true,
+        message: `Cuenta bloqueada. Intenta en ${mins} minutos.`,
+      };
     }
 
     const isValid = await verifyPinHash(pin, user.pinHash);
@@ -186,6 +193,7 @@ export class UserService {
       log.warn('Account locked', { userId: user.id, reason: 'max_pin_attempts' });
       return {
         success: false,
+        isLocked: true,
         message: 'Cuenta bloqueada por seguridad (15 min). Si no fuiste tú, contacta /soporte.',
       };
     }
