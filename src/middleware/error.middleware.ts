@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { createLogger } from '../config/logger';
+import { env } from '../config/environment';
 import { InsufficientFundsError } from '../services/wallet.service';
 
 const log = createLogger('error-handler');
@@ -90,9 +91,10 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
   }
 
   // Unknown errors → 500
+  // Stack traces are only logged in development to avoid leaking file paths in production logs
   log.error('Unhandled error', {
     error: err.message,
-    stack: err.stack,
+    ...(env.NODE_ENV !== 'production' && { stack: err.stack }),
     path: req.path,
     method: req.method,
   });

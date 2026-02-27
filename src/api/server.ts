@@ -21,7 +21,12 @@ const app = express();
 // ─── Security Middleware ────────────────────────────────
 
 app.use(requestId);
-app.use(helmet());
+app.use(
+  helmet({
+    hsts: { maxAge: 31_536_000, includeSubDomains: true, preload: true },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  }),
+);
 app.use(cors({ origin: env.APP_BASE_URL }));
 app.use(express.json({ limit: '1mb' }));
 app.use(rateLimit(100, 60_000));
@@ -79,30 +84,32 @@ app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/merchants', merchantRoutes);
 app.use('/api/v1/topup', topupRoutes);
 
-// ─── API Docs (Swagger UI via CDN) ──────────────────────
+// ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 
-app.get('/api/docs/spec', (_req, res) => {
-  const specPath = path.join(__dirname, '../../docs/openapi.json');
-  if (!fs.existsSync(specPath)) {
-    return res.status(404).json({ error: 'OpenAPI spec not found' });
-  }
-  res.setHeader('Content-Type', 'application/json');
-  res.send(fs.readFileSync(specPath, 'utf8'));
-});
+// Docs are only served outside production to avoid exposing the API schema
+if (env.NODE_ENV !== 'production') {
+  app.get('/api/docs/spec', (_req, res) => {
+    const specPath = path.join(__dirname, '../../docs/openapi.json');
+    if (!fs.existsSync(specPath)) {
+      return res.status(404).json({ error: 'OpenAPI spec not found' });
+    }
+    res.setHeader('Content-Type', 'application/json');
+    res.send(fs.readFileSync(specPath, 'utf8'));
+  });
 
-app.get('/api/docs', (_req, res) => {
-  const specUrl = `${env.APP_BASE_URL}/api/docs/spec`;
-  // Override helmet's CSP to allow unpkg CDN scripts/styles for Swagger UI
-  res.setHeader(
-    'Content-Security-Policy',
-    "default-src 'self'; " +
-      "script-src 'self' 'unsafe-inline' https://unpkg.com; " +
-      "style-src 'self' 'unsafe-inline' https://unpkg.com; " +
-      "img-src 'self' data: https://unpkg.com; " +
-      `connect-src 'self' ${env.APP_BASE_URL};`,
-  );
-  res.setHeader('Content-Type', 'text/html');
-  res.send(`<!DOCTYPE html>
+  app.get('/api/docs', (_req, res) => {
+    const specUrl = `${env.APP_BASE_URL}/api/docs/spec`;
+    // Override helmet's CSP to allow unpkg CDN scripts/styles for Swagger UI
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; " +
+        "script-src 'self' 'unsafe-inline' https://unpkg.com; " +
+        "style-src 'self' 'unsafe-inline' https://unpkg.com; " +
+        "img-src 'self' data: https://unpkg.com; " +
+        `connect-src 'self' ${env.APP_BASE_URL};`,
+    );
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
@@ -137,7 +144,8 @@ app.get('/api/docs', (_req, res) => {
   </script>
 </body>
 </html>`);
-});
+  });
+} // end if (env.NODE_ENV !== 'production')
 
 // ─── Payment Link Landing (public) ──────────────────────
 

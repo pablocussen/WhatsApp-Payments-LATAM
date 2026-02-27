@@ -123,7 +123,14 @@ router.get(
   '/history',
   requireAuth,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+    const limitParsed = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .default(20)
+      .safeParse(req.query.limit);
+    const limit = limitParsed.success ? limitParsed.data : 20;
     const history = await transactions.getTransactionHistory(req.user!.userId, limit);
     return res.json({ history });
   }),

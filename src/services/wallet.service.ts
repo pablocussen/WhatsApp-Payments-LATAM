@@ -186,23 +186,6 @@ export class WalletService {
       currency: wallet.currency,
     };
   }
-
-  async getMonthlyTotal(userId: string): Promise<number> {
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const result = await prisma.transaction.aggregate({
-      where: {
-        senderId: userId,
-        status: 'COMPLETED',
-        createdAt: { gte: startOfMonth },
-      },
-      _sum: { amount: true },
-    });
-
-    return Number(result._sum.amount ?? 0);
-  }
 }
 
 // ─── Errors ─────────────────────────────────────────────

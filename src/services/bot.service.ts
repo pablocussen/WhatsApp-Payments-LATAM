@@ -307,7 +307,11 @@ export class BotService {
         }
 
         if (receiver.id === userId) {
-          await this.wa.sendTextMessage(from, 'No puedes pagarte a ti mismo. Escribe otro número:');
+          await deleteSession(from);
+          await this.wa.sendTextMessage(
+            from,
+            'No puedes pagarte a ti mismo. Usa /pagar para intentar con otro número.',
+          );
           return;
         }
 
