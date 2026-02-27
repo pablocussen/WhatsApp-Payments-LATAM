@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { env } from '../config/environment';
 
 const FETCH_TIMEOUT_MS = 10_000;
@@ -111,26 +112,50 @@ export class WhatsAppService {
   }
 
   parseWebhookMessage(body: unknown): IncomingMessage | null {
-    try {
-      const payload = body as Record<string, unknown>;
-      const entry = (payload.entry as Record<string, unknown>[] | undefined)?.[0];
-      const change = (entry?.changes as Record<string, unknown>[] | undefined)?.[0];
-      const value = change?.value as Record<string, unknown> | undefined;
-      const message = (value?.messages as Record<string, unknown>[] | undefined)?.[0];
+    const webhookSchema = z.object({
+      entry: z.array(
+        z.object({
+          changes: z.array(
+            z.object({
+              value: z.object({
+                messages: z
+                  .array(
+                    z.object({
+                      from: z.string(),
+                      id: z.string(),
+                      timestamp: z.string(),
+                      type: z.enum(['text', 'interactive', 'button']),
+                      text: z.object({ body: z.string() }).optional(),
+                      interactive: z
+                        .object({
+                          type: z.string(),
+                          button_reply: z.object({ id: z.string(), title: z.string() }).optional(),
+                          list_reply: z
+                            .object({
+                              id: z.string(),
+                              title: z.string(),
+                              description: z.string(),
+                            })
+                            .optional(),
+                        })
+                        .optional(),
+                    }),
+                  )
+                  .optional(),
+              }),
+            }),
+          ),
+        }),
+      ),
+    });
 
-      if (!message) return null;
+    const parsed = webhookSchema.safeParse(body);
+    if (!parsed.success) return null;
 
-      return {
-        from: message.from as string,
-        id: message.id as string,
-        timestamp: message.timestamp as string,
-        type: message.type as IncomingMessage['type'],
-        text: message.text as IncomingMessage['text'],
-        interactive: message.interactive as IncomingMessage['interactive'],
-      };
-    } catch {
-      return null;
-    }
+    const message = parsed.data.entry[0]?.changes[0]?.value.messages?.[0];
+    if (!message) return null;
+
+    return message;
   }
 
   verifyWebhook(mode: string, token: string, challenge: string): string | null {
