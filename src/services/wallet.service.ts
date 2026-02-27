@@ -62,15 +62,19 @@ export class WalletService {
   async debit(userId: string, amount: number, description: string): Promise<WalletBalance> {
     if (amount <= 0) throw new Error('Amount must be positive');
 
-    // Check balance first (prevent negative)
-    const current = await prisma.wallet.findUnique({ where: { userId } });
-    if (!current || Number(current.balance) < amount) {
-      throw new InsufficientFundsError(Number(current?.balance ?? 0), amount);
-    }
-
-    const wallet = await prisma.wallet.update({
-      where: { userId },
-      data: { balance: { decrement: amount } },
+    // Atomic check-and-debit: balance check + update in one transaction to
+    // prevent race conditions (double-spend) from concurrent requests.
+    const wallet = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const [row] = await tx.$queryRaw<{ balance: string }[]>`
+        SELECT balance FROM wallets WHERE user_id = ${userId}::uuid FOR UPDATE
+      `;
+      if (!row || Number(row.balance) < amount) {
+        throw new InsufficientFundsError(Number(row?.balance ?? 0), amount);
+      }
+      return tx.wallet.update({
+        where: { userId },
+        data: { balance: { decrement: amount } },
+      });
     });
 
     log.info('Wallet debited', { userId, amount, description });

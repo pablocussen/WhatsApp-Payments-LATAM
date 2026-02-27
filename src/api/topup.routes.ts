@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { TransbankService } from '../services/transbank.service';
 import { KhipuService } from '../services/khipu.service';
 import { WalletService } from '../services/wallet.service';
@@ -20,16 +21,21 @@ const log = createLogger('topup-api');
 
 const TOPUP_MAPPING_TTL = 3600; // 1 hora
 
+const topupSchema = z.object({
+  amount: z.coerce.number().int().min(1000).max(500000),
+});
+
 // ─── Initiate Top-up with Transbank ─────────────────────
 
 router.post(
   '/webpay',
   requireAuth,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const amount = parseInt(req.body.amount, 10);
-    if (!amount || amount < 1000 || amount > 500000) {
+    const parsed = topupSchema.safeParse(req.body);
+    if (!parsed.success) {
       return res.status(400).json({ error: 'Monto entre $1.000 y $500.000 CLP.' });
     }
+    const { amount } = parsed.data;
 
     const buyOrder = generateReference().replace('#', '');
     const returnUrl = `${env.APP_BASE_URL}/api/v1/topup/webpay/callback`;
@@ -68,7 +74,9 @@ router.post('/webpay/callback', async (req: Request, res: Response) => {
 
     if (result.status !== 'AUTHORIZED') {
       log.warn('WebPay top-up failed', { status: result.status });
-      return res.redirect(`${env.APP_BASE_URL}/topup/error?reason=${result.status}`);
+      return res.redirect(
+        `${env.APP_BASE_URL}/topup/error?reason=${encodeURIComponent(result.status)}`,
+      );
     }
 
     if (!result.buyOrder) {
@@ -103,17 +111,22 @@ router.post('/webpay/callback', async (req: Request, res: Response) => {
       card: result.cardLast4,
     });
 
-    // Notificar al usuario por WhatsApp
+    // Notificar al usuario por WhatsApp (optional — don't block on failure)
     try {
       await whatsapp.sendTextMessage(
         mapping.waId,
         `✅ Recarga exitosa\n────────────────────\n${formatCLP(mapping.amount)} acreditados\nMétodo: WebPay\n────────────────────\nTu saldo ha sido actualizado.`,
       );
-    } catch {
-      /* Notificación opcional */
+    } catch (notifyErr) {
+      log.warn('WebPay top-up WhatsApp notification failed', {
+        waId: mapping.waId,
+        error: (notifyErr as Error).message,
+      });
     }
 
-    return res.redirect(`${env.APP_BASE_URL}/topup/success?amount=${result.amount}`);
+    return res.redirect(
+      `${env.APP_BASE_URL}/topup/success?amount=${encodeURIComponent(String(result.amount))}`,
+    );
   } catch (err) {
     log.error('WebPay callback error', { error: (err as Error).message });
     return res.redirect(`${env.APP_BASE_URL}/topup/error?reason=processing_error`);
@@ -126,10 +139,11 @@ router.post(
   '/khipu',
   requireAuth,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const amount = parseInt(req.body.amount, 10);
-    if (!amount || amount < 1000 || amount > 500000) {
+    const parsed = topupSchema.safeParse(req.body);
+    if (!parsed.success) {
       return res.status(400).json({ error: 'Monto entre $1.000 y $500.000 CLP.' });
     }
+    const { amount } = parsed.data;
 
     const reference = generateReference();
     const notifyUrl = `${env.APP_BASE_URL}/api/v1/topup/khipu/notify`;
@@ -207,14 +221,17 @@ router.post('/khipu/notify', async (req: Request, res: Response) => {
       amount: mapping.amount,
     });
 
-    // Notificar al usuario por WhatsApp
+    // Notificar al usuario por WhatsApp (optional — don't block on failure)
     try {
       await whatsapp.sendTextMessage(
         mapping.waId,
         `✅ Recarga exitosa\n────────────────────\n${formatCLP(mapping.amount)} acreditados\nMétodo: Khipu (transferencia)\nRef: ${status.paymentId}\n────────────────────\nTu saldo ha sido actualizado.`,
       );
-    } catch {
-      /* Notificación opcional */
+    } catch (notifyErr) {
+      log.warn('Khipu top-up WhatsApp notification failed', {
+        waId: mapping.waId,
+        error: (notifyErr as Error).message,
+      });
     }
   } catch (err) {
     log.error('Khipu notify processing error', { error: (err as Error).message });
