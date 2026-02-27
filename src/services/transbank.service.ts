@@ -3,6 +3,8 @@ import { env } from '../config/environment';
 
 const log = createLogger('transbank');
 
+const FETCH_TIMEOUT_MS = 30_000;
+
 // ─── Types ──────────────────────────────────────────────
 
 export interface WebPayTransaction {
@@ -13,6 +15,7 @@ export interface WebPayTransaction {
 export interface WebPayResult {
   status: 'AUTHORIZED' | 'FAILED' | 'NULLIFIED';
   amount: number;
+  buyOrder?: string;
   authorizationCode?: string;
   transactionDate?: string;
   cardLast4?: string;
@@ -29,9 +32,10 @@ export class TransbankService {
   constructor() {
     this.commerceCode = env.TRANSBANK_COMMERCE_CODE;
     this.apiKey = env.TRANSBANK_API_KEY;
-    this.baseUrl = env.TRANSBANK_ENVIRONMENT === 'production'
-      ? 'https://webpay3g.transbank.cl'
-      : 'https://webpay3gint.transbank.cl';
+    this.baseUrl =
+      env.TRANSBANK_ENVIRONMENT === 'production'
+        ? 'https://webpay3g.transbank.cl'
+        : 'https://webpay3gint.transbank.cl';
   }
 
   /**
@@ -41,22 +45,26 @@ export class TransbankService {
   async createTransaction(
     buyOrder: string,
     amount: number,
-    returnUrl: string
+    returnUrl: string,
   ): Promise<WebPayTransaction> {
-    const response = await fetch(`${this.baseUrl}/rswebpaytransaction/api/webpay/v1.2/transactions`, {
-      method: 'POST',
-      headers: {
-        'Tbk-Api-Key-Id': this.commerceCode,
-        'Tbk-Api-Key-Secret': this.apiKey,
-        'Content-Type': 'application/json',
+    const response = await fetch(
+      `${this.baseUrl}/rswebpaytransaction/api/webpay/v1.2/transactions`,
+      {
+        method: 'POST',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        headers: {
+          'Tbk-Api-Key-Id': this.commerceCode,
+          'Tbk-Api-Key-Secret': this.apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          buy_order: buyOrder,
+          session_id: `session_${Date.now()}`,
+          amount,
+          return_url: returnUrl,
+        }),
       },
-      body: JSON.stringify({
-        buy_order: buyOrder,
-        session_id: `session_${Date.now()}`,
-        amount,
-        return_url: returnUrl,
-      }),
-    });
+    );
 
     if (!response.ok) {
       const error = await response.text();
@@ -65,7 +73,11 @@ export class TransbankService {
     }
 
     const data: any = await response.json();
-    log.info('Transbank transaction created', { buyOrder, amount, token: data.token?.slice(0, 10) });
+    log.info('Transbank transaction created', {
+      buyOrder,
+      amount,
+      token: data.token?.slice(0, 10),
+    });
 
     return {
       token: data.token,
@@ -75,18 +87,20 @@ export class TransbankService {
 
   /**
    * Confirma una transacción después del retorno de Transbank.
+   * Incluye buy_order para permitir lookup directo en Redis.
    */
   async confirmTransaction(token: string): Promise<WebPayResult> {
     const response = await fetch(
       `${this.baseUrl}/rswebpaytransaction/api/webpay/v1.2/transactions/${token}`,
       {
         method: 'PUT',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         headers: {
           'Tbk-Api-Key-Id': this.commerceCode,
           'Tbk-Api-Key-Secret': this.apiKey,
           'Content-Type': 'application/json',
         },
-      }
+      },
     );
 
     if (!response.ok) {
@@ -99,6 +113,7 @@ export class TransbankService {
     const result: WebPayResult = {
       status: data.response_code === 0 ? 'AUTHORIZED' : 'FAILED',
       amount: data.amount,
+      buyOrder: data.buy_order,
       authorizationCode: data.authorization_code,
       transactionDate: data.transaction_date,
       cardLast4: data.card_detail?.card_number,
@@ -122,13 +137,14 @@ export class TransbankService {
       `${this.baseUrl}/rswebpaytransaction/api/webpay/v1.2/transactions/${token}/refunds`,
       {
         method: 'POST',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         headers: {
           'Tbk-Api-Key-Id': this.commerceCode,
           'Tbk-Api-Key-Secret': this.apiKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ amount }),
-      }
+      },
     );
 
     if (!response.ok) {

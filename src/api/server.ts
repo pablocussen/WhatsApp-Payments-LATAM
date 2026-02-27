@@ -8,6 +8,7 @@ import { connectRedis, getRedis, prisma } from '../config/database';
 import { createLogger } from '../config/logger';
 import { rateLimit } from '../middleware/auth.middleware';
 import { errorHandler } from '../middleware/error.middleware';
+import { requestId } from '../middleware/request-id.middleware';
 import webhookRoutes from './webhook.routes';
 import userRoutes from './user.routes';
 import paymentRoutes from './payment.routes';
@@ -19,6 +20,7 @@ const app = express();
 
 // ─── Security Middleware ────────────────────────────────
 
+app.use(requestId);
 app.use(helmet());
 app.use(cors({ origin: env.APP_BASE_URL }));
 app.use(express.json({ limit: '1mb' }));
@@ -29,6 +31,7 @@ app.use(rateLimit(100, 60_000));
 app.use((req, _res, next) => {
   log.debug(`${req.method} ${req.path}`, {
     ip: req.ip,
+    requestId: req.headers['x-request-id'],
     userAgent: req.get('user-agent')?.slice(0, 50),
   });
   next();
@@ -90,12 +93,13 @@ app.get('/api/docs/spec', (_req, res) => {
 app.get('/api/docs', (_req, res) => {
   const specUrl = `${env.APP_BASE_URL}/api/docs/spec`;
   // Override helmet's CSP to allow unpkg CDN scripts/styles for Swagger UI
-  res.setHeader('Content-Security-Policy',
+  res.setHeader(
+    'Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' https://unpkg.com; " +
-    "style-src 'self' 'unsafe-inline' https://unpkg.com; " +
-    "img-src 'self' data: https://unpkg.com; " +
-    `connect-src 'self' ${env.APP_BASE_URL};`
+      "script-src 'self' 'unsafe-inline' https://unpkg.com; " +
+      "style-src 'self' 'unsafe-inline' https://unpkg.com; " +
+      "img-src 'self' data: https://unpkg.com; " +
+      `connect-src 'self' ${env.APP_BASE_URL};`,
   );
   res.setHeader('Content-Type', 'text/html');
   res.send(`<!DOCTYPE html>
@@ -162,7 +166,9 @@ async function start() {
         env: env.NODE_ENV,
         url: `http://localhost:${env.PORT}`,
       });
-      log.info('Routes loaded: /health, /api/docs, /api/v1/webhook, /api/v1/users, /api/v1/payments, /api/v1/merchants, /c/:code');
+      log.info(
+        'Routes loaded: /health, /api/docs, /api/v1/webhook, /api/v1/users, /api/v1/payments, /api/v1/merchants, /c/:code',
+      );
     });
   } catch (err) {
     log.error('Failed to start server', { error: (err as Error).message });

@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { BotService } from '../services/bot.service';
 import { createLogger } from '../config/logger';
+import { env } from '../config/environment';
 
 const router = Router();
 const whatsapp = new WhatsAppService();
@@ -19,6 +21,27 @@ async function isDuplicate(messageId: string): Promise<boolean> {
     return wasSet === null; // null = key already existed = duplicate
   } catch {
     return false; // Redis down → process anyway (fail-open)
+  }
+}
+
+/**
+ * Validates X-Hub-Signature-256 sent by WhatsApp.
+ * Skips validation if WHATSAPP_APP_SECRET is not configured (dev / integration).
+ */
+function verifySignature(req: Request): boolean {
+  if (!env.WHATSAPP_APP_SECRET) return true;
+
+  const signature = req.headers['x-hub-signature-256'] as string | undefined;
+  if (!signature) return false;
+
+  const expected = `sha256=${createHmac('sha256', env.WHATSAPP_APP_SECRET)
+    .update(JSON.stringify(req.body))
+    .digest('hex')}`;
+
+  try {
+    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  } catch {
+    return false;
   }
 }
 
@@ -43,6 +66,15 @@ router.get('/webhook', (req: Request, res: Response) => {
 // ─── WhatsApp Webhook Messages (POST) ───────────────────
 
 router.post('/webhook', async (req: Request, res: Response) => {
+  // Validate HMAC signature before processing
+  if (!verifySignature(req)) {
+    log.warn('Webhook signature validation failed', {
+      ip: req.ip,
+      hasSignature: !!req.headers['x-hub-signature-256'],
+    });
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
   // Always respond 200 immediately (WhatsApp requirement)
   res.status(200).json({ status: 'received' });
 
@@ -51,7 +83,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     if (!message) return;
 
     // Idempotency: skip already-processed messages
-    if (message.id && await isDuplicate(message.id)) {
+    if (message.id && (await isDuplicate(message.id))) {
       log.debug('Duplicate message skipped', { messageId: message.id, from: message.from });
       return;
     }

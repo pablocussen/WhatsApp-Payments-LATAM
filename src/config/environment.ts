@@ -13,11 +13,14 @@ const envSchema = z.object({
   WHATSAPP_PHONE_NUMBER_ID: z.string().default('not-configured'),
   WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().default('not-configured'),
   WHATSAPP_API_TOKEN: z.string().default('not-configured'),
+  WHATSAPP_APP_SECRET: z.string().optional(), // Used to validate X-Hub-Signature-256
   WHATSAPP_VERIFY_TOKEN: z.string().default('whatpay-verify-2026'),
 
   // Transbank
   TRANSBANK_COMMERCE_CODE: z.string().default('597055555532'),
-  TRANSBANK_API_KEY: z.string().default('579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C'),
+  TRANSBANK_API_KEY: z
+    .string()
+    .default('579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C'),
   TRANSBANK_ENVIRONMENT: z.enum(['integration', 'production']).default('integration'),
 
   // Khipu

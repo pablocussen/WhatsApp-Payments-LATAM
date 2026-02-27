@@ -4,6 +4,8 @@ import { requireAuth, AuthenticatedRequest } from '../middleware/jwt.middleware'
 import { PaymentLinkService } from '../services/payment-link.service';
 import { TransactionService } from '../services/transaction.service';
 import { WalletService } from '../services/wallet.service';
+import { asyncHandler } from '../utils/async-handler';
+
 const router = Router();
 const paymentLinks = new PaymentLinkService();
 const transactions = new TransactionService();
@@ -29,87 +31,114 @@ const processPaymentSchema = z.object({
 // ─── Payment Links ──────────────────────────────────────
 
 // Resolve payment link (public - no auth needed)
-router.get('/links/:code', async (req, res) => {
-  const link = await paymentLinks.resolveLink(req.params.code);
+router.get(
+  '/links/:code',
+  asyncHandler(async (req, res) => {
+    const link = await paymentLinks.resolveLink(req.params.code);
 
-  if (!link) {
-    return res.status(404).json({ error: 'Enlace inválido o expirado.' });
-  }
+    if (!link) {
+      return res.status(404).json({ error: 'Enlace inválido o expirado.' });
+    }
 
-  return res.json(link);
-});
+    return res.json(link);
+  }),
+);
 
 // Create payment link (auth required)
-router.post('/links', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const parsed = createLinkSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'Datos inválidos.', details: parsed.error.flatten() });
-  }
+router.post(
+  '/links',
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const parsed = createLinkSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', details: parsed.error.flatten() });
+    }
 
-  const link = await paymentLinks.createLink({
-    merchantId: req.user!.userId,
-    ...parsed.data,
-  });
+    const link = await paymentLinks.createLink({
+      merchantId: req.user!.userId,
+      ...parsed.data,
+    });
 
-  return res.status(201).json(link);
-});
+    return res.status(201).json(link);
+  }),
+);
 
 // List my payment links
-router.get('/links', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const links = await paymentLinks.getMerchantLinks(req.user!.userId);
-  return res.json({ links });
-});
+router.get(
+  '/links',
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const links = await paymentLinks.getMerchantLinks(req.user!.userId);
+    return res.json({ links });
+  }),
+);
 
 // Deactivate a payment link
-router.delete('/links/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const success = await paymentLinks.deactivateLink(req.params.id, req.user!.userId);
-  if (!success) {
-    return res.status(404).json({ error: 'Enlace no encontrado.' });
-  }
-  return res.json({ message: 'Enlace desactivado.' });
-});
+router.delete(
+  '/links/:id',
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const success = await paymentLinks.deactivateLink(req.params.id, req.user!.userId);
+    if (!success) {
+      return res.status(404).json({ error: 'Enlace no encontrado.' });
+    }
+    return res.json({ message: 'Enlace desactivado.' });
+  }),
+);
 
 // ─── Payments ───────────────────────────────────────────
 
 // Process a payment
-router.post('/pay', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const parsed = processPaymentSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'Datos inválidos.', details: parsed.error.flatten() });
-  }
+router.post(
+  '/pay',
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const parsed = processPaymentSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', details: parsed.error.flatten() });
+    }
 
-  const result = await transactions.processP2PPayment({
-    senderId: req.user!.userId,
-    senderWaId: req.user!.waId,
-    receiverId: parsed.data.receiverId,
-    amount: parsed.data.amount,
-    paymentMethod: parsed.data.paymentMethod,
-    description: parsed.data.description,
-    paymentLinkId: parsed.data.paymentLinkId,
-    ip: req.ip,
-  });
+    const result = await transactions.processP2PPayment({
+      senderId: req.user!.userId,
+      senderWaId: req.user!.waId,
+      receiverId: parsed.data.receiverId,
+      amount: parsed.data.amount,
+      paymentMethod: parsed.data.paymentMethod,
+      description: parsed.data.description,
+      paymentLinkId: parsed.data.paymentLinkId,
+      ip: req.ip,
+    });
 
-  if (!result.success) {
-    const status = result.fraudBlocked ? 403 : 400;
-    return res.status(status).json({ error: result.error });
-  }
+    if (!result.success) {
+      const status = result.fraudBlocked ? 403 : 400;
+      return res.status(status).json({ error: result.error });
+    }
 
-  return res.status(201).json(result);
-});
+    return res.status(201).json(result);
+  }),
+);
 
 // Transaction history
-router.get('/history', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
-  const history = await transactions.getTransactionHistory(req.user!.userId, limit);
-  return res.json({ history });
-});
+router.get(
+  '/history',
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+    const history = await transactions.getTransactionHistory(req.user!.userId, limit);
+    return res.json({ history });
+  }),
+);
 
 // ─── Wallet ─────────────────────────────────────────────
 
 // Get balance
-router.get('/wallet/balance', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const balance = await wallets.getBalance(req.user!.userId);
-  return res.json(balance);
-});
+router.get(
+  '/wallet/balance',
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const balance = await wallets.getBalance(req.user!.userId);
+    return res.json(balance);
+  }),
+);
 
 export default router;

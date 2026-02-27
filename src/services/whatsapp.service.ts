@@ -1,5 +1,7 @@
 import { env } from '../config/environment';
 
+const FETCH_TIMEOUT_MS = 10_000;
+
 // ─── Types ──────────────────────────────────────────────
 
 interface WhatsAppTextMessage {
@@ -64,7 +66,7 @@ export class WhatsAppService {
   async sendButtonMessage(
     to: string,
     body: string,
-    buttons: Array<{ id: string; title: string }>
+    buttons: Array<{ id: string; title: string }>,
   ): Promise<void> {
     const message: WhatsAppButtonMessage = {
       messaging_product: 'whatsapp',
@@ -88,7 +90,7 @@ export class WhatsAppService {
     to: string,
     amount: number,
     receiverName: string,
-    reference: string
+    reference: string,
   ): Promise<void> {
     const formattedAmount = new Intl.NumberFormat('es-CL', {
       style: 'currency',
@@ -141,8 +143,9 @@ export class WhatsAppService {
 
     const response = await fetch(url, {
       method: 'POST',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: {
-        'Authorization': `Bearer ${this.apiToken}`,
+        Authorization: `Bearer ${this.apiToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(message),

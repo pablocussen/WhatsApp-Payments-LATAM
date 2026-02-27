@@ -3,7 +3,6 @@ import { UserService } from './user.service';
 import { WalletService } from './wallet.service';
 import { TransactionService } from './transaction.service';
 import { PaymentLinkService } from './payment-link.service';
-import { MerchantService } from './merchant.service';
 import { getSession, setSession, deleteSession, ConversationSession } from '../config/database';
 import { createLogger } from '../config/logger';
 import { formatCLP, formatPhone, divider, receipt } from '../utils/format';
@@ -40,7 +39,6 @@ export class BotService {
   private wallets = new WalletService();
   private transactions = new TransactionService();
   private paymentLinks = new PaymentLinkService();
-
 
   async handleMessage(from: string, text: string, buttonId?: string): Promise<void> {
     try {
@@ -97,7 +95,7 @@ export class BotService {
         '',
         'Para empezar necesito verificar tu identidad.',
       ].join('\n'),
-      [{ id: 'start_register', title: 'Crear mi cuenta' }]
+      [{ id: 'start_register', title: 'Crear mi cuenta' }],
     );
 
     await setSession(from, {
@@ -109,7 +107,11 @@ export class BotService {
     });
   }
 
-  private async handleRegistration(from: string, text: string, session: ConversationSession): Promise<void> {
+  private async handleRegistration(
+    from: string,
+    text: string,
+    session: ConversationSession,
+  ): Promise<void> {
     switch (session.state as State) {
       case 'REGISTER_RUT': {
         if (text === 'start_register' || text === 'crear mi cuenta') {
@@ -128,7 +130,7 @@ export class BotService {
         await setSession(from, session);
         await this.wa.sendTextMessage(
           from,
-          `RUT ${formatRut(rut)} verificado.\n\nAhora crea un PIN de 6 dígitos para autorizar tus pagos.\nNo lo compartas con nadie.`
+          `RUT ${formatRut(rut)} verificado.\n\nAhora crea un PIN de 6 dígitos para autorizar tus pagos.\nNo lo compartas con nadie.`,
         );
         return;
       }
@@ -139,7 +141,10 @@ export class BotService {
           return;
         }
         if (!isSecurePin(text)) {
-          await this.wa.sendTextMessage(from, 'PIN muy simple. No uses secuencias (123456) ni repetidos (111111). Elige otro:');
+          await this.wa.sendTextMessage(
+            from,
+            'PIN muy simple. No uses secuencias (123456) ni repetidos (111111). Elige otro:',
+          );
           return;
         }
 
@@ -151,7 +156,7 @@ export class BotService {
       }
 
       case 'REGISTER_PIN_CONFIRM': {
-        if (!await verifyPinHash(text, session.data.pinHash)) {
+        if (!(await verifyPinHash(text, session.data.pinHash))) {
           session.state = 'REGISTER_PIN';
           delete session.data.pinHash;
           await setSession(from, session);
@@ -187,7 +192,7 @@ export class BotService {
             { id: 'cmd_pay', title: 'Enviar pago' },
             { id: 'cmd_charge', title: 'Cobrar' },
             { id: 'cmd_topup', title: 'Recargar saldo' },
-          ]
+          ],
         );
         return;
       }
@@ -210,7 +215,8 @@ export class BotService {
     if (normalized.startsWith('/saldo') || normalized === 'saldo') return 'balance';
     if (normalized.startsWith('/recargar')) return 'topup';
     if (normalized.startsWith('/historial')) return 'history';
-    if (normalized.startsWith('/ayuda') || normalized === 'hola' || normalized === 'menu') return 'help';
+    if (normalized.startsWith('/ayuda') || normalized === 'hola' || normalized === 'menu')
+      return 'help';
     if (normalized.startsWith('/soporte')) return 'support';
     if (normalized.startsWith('/perfil')) return 'profile';
     if (normalized.startsWith('/cambiarpin')) return 'changepin';
@@ -218,7 +224,12 @@ export class BotService {
     return null;
   }
 
-  private async handleCommand(from: string, userId: string, command: string, rawText: string): Promise<void> {
+  private async handleCommand(
+    from: string,
+    userId: string,
+    command: string,
+    rawText: string,
+  ): Promise<void> {
     switch (command) {
       case 'pay':
         return this.startPayFlow(from, userId);
@@ -235,7 +246,10 @@ export class BotService {
         return this.sendHelp(from, user?.name ?? null);
       }
       case 'support':
-        return this.wa.sendTextMessage(from, 'Soporte WhatPay: escríbenos a soporte@whatpay.cl o llama al 600 XXX XXXX (Lun-Vie 9-18h).');
+        return this.wa.sendTextMessage(
+          from,
+          'Soporte WhatPay: escríbenos a soporte@whatpay.cl o llama al 600 XXX XXXX (Lun-Vie 9-18h).',
+        );
       case 'profile':
         return this.showProfile(from, userId);
       case 'changepin':
@@ -249,13 +263,25 @@ export class BotService {
 
   private async startPayFlow(from: string, userId: string): Promise<void> {
     await setSession(from, {
-      userId, waId: from, state: 'PAY_ENTER_PHONE', data: {}, lastActivity: Date.now(),
+      userId,
+      waId: from,
+      state: 'PAY_ENTER_PHONE',
+      data: {},
+      lastActivity: Date.now(),
     });
 
-    await this.wa.sendTextMessage(from, '¿A quién le quieres pagar?\n\nEscribe el número de teléfono (ej: +56912345678):');
+    await this.wa.sendTextMessage(
+      from,
+      '¿A quién le quieres pagar?\n\nEscribe el número de teléfono (ej: +56912345678):',
+    );
   }
 
-  private async handlePayFlow(from: string, userId: string, text: string, session: ConversationSession): Promise<void> {
+  private async handlePayFlow(
+    from: string,
+    userId: string,
+    text: string,
+    session: ConversationSession,
+  ): Promise<void> {
     switch (session.state as State) {
       case 'PAY_ENTER_PHONE': {
         // Find receiver
@@ -270,7 +296,7 @@ export class BotService {
             [
               { id: 'cmd_pay', title: 'Otro número' },
               { id: 'cmd_help', title: 'Cancelar' },
-            ]
+            ],
           );
           await deleteSession(from);
           return;
@@ -287,7 +313,10 @@ export class BotService {
         session.state = 'PAY_ENTER_AMOUNT';
         await setSession(from, session);
 
-        await this.wa.sendTextMessage(from, `Pagar a: ${session.data.receiverName}\n\n¿Cuánto quieres enviar? (en pesos CLP):`);
+        await this.wa.sendTextMessage(
+          from,
+          `Pagar a: ${session.data.receiverName}\n\n¿Cuánto quieres enviar? (en pesos CLP):`,
+        );
         return;
       }
 
@@ -315,13 +344,18 @@ export class BotService {
           [
             { id: 'confirm_pay', title: 'Confirmar y pagar' },
             { id: 'cmd_help', title: 'Cancelar' },
-          ]
+          ],
         );
         return;
       }
 
       case 'PAY_CONFIRM': {
-        if (text === 'confirm_pay' || text === 'confirmar y pagar' || text.toLowerCase() === 'si' || text.toLowerCase() === 'sí') {
+        if (
+          text === 'confirm_pay' ||
+          text === 'confirmar y pagar' ||
+          text.toLowerCase() === 'si' ||
+          text.toLowerCase() === 'sí'
+        ) {
           session.state = 'PAY_ENTER_PIN';
           await setSession(from, session);
           await this.wa.sendTextMessage(from, 'Ingresa tu PIN de 6 dígitos:');
@@ -370,7 +404,7 @@ export class BotService {
               `Ref: ${payment.reference}`,
               `Saldo: ${payment.senderBalance}`,
             ]),
-          ].join('\n')
+          ].join('\n'),
         );
 
         // Notify receiver
@@ -387,7 +421,7 @@ export class BotService {
           [
             { id: 'cmd_balance', title: 'Ver saldo' },
             { id: 'cmd_history', title: 'Historial' },
-          ]
+          ],
         );
 
         log.info('P2P payment completed via bot', {
@@ -405,7 +439,10 @@ export class BotService {
 
   private async startChargeFlow(from: string, userId: string, rawText: string): Promise<void> {
     // Quick charge: /cobrar 3500 Café
-    const parts = rawText.replace(/\/cobrar/i, '').trim().split(/\s+/);
+    const parts = rawText
+      .replace(/\/cobrar/i, '')
+      .trim()
+      .split(/\s+/);
     const quickAmount = parseInt(parts[0], 10);
 
     if (!isNaN(quickAmount) && quickAmount >= 100) {
@@ -427,19 +464,28 @@ export class BotService {
             `Vence: 24 horas`,
           ]),
           'Comparte este enlace con tu cliente por WhatsApp.',
-        ].join('\n')
+        ].join('\n'),
       );
       return;
     }
 
     // Interactive charge flow
     await setSession(from, {
-      userId, waId: from, state: 'CHARGE_ENTER_AMOUNT', data: {}, lastActivity: Date.now(),
+      userId,
+      waId: from,
+      state: 'CHARGE_ENTER_AMOUNT',
+      data: {},
+      lastActivity: Date.now(),
     });
     await this.wa.sendTextMessage(from, '¿Cuánto quieres cobrar? (en pesos CLP):');
   }
 
-  private async handleChargeFlow(from: string, userId: string, text: string, session: ConversationSession): Promise<void> {
+  private async handleChargeFlow(
+    from: string,
+    userId: string,
+    text: string,
+    session: ConversationSession,
+  ): Promise<void> {
     switch (session.state as State) {
       case 'CHARGE_ENTER_AMOUNT': {
         const amount = parseInt(text.replace(/[$.]/g, ''), 10);
@@ -475,7 +521,7 @@ export class BotService {
               `Vence: 24 horas`,
             ]),
             'Comparte este enlace con tu cliente.',
-          ].join('\n')
+          ].join('\n'),
         );
         return;
       }
@@ -488,14 +534,10 @@ export class BotService {
 
   private async showBalance(from: string, userId: string): Promise<void> {
     const balance = await this.wallets.getBalance(userId);
-    await this.wa.sendButtonMessage(
-      from,
-      `Tu saldo: ${balance.formatted}`,
-      [
-        { id: 'cmd_topup', title: 'Recargar' },
-        { id: 'cmd_history', title: 'Historial' },
-      ]
-    );
+    await this.wa.sendButtonMessage(from, `Tu saldo: ${balance.formatted}`, [
+      { id: 'cmd_topup', title: 'Recargar' },
+      { id: 'cmd_history', title: 'Historial' },
+    ]);
   }
 
   private async showHistory(from: string, userId: string): Promise<void> {
@@ -529,30 +571,35 @@ export class BotService {
         `Transacciones: ${stats.txCount}`,
         `Biometría: ${user.biometricEnabled ? 'Activada' : 'No activada'}`,
         divider(),
-      ].join('\n')
+      ].join('\n'),
     );
   }
 
   private async startTopUpFlow(from: string): Promise<void> {
-    await this.wa.sendButtonMessage(
-      from,
-      '¿Cuánto quieres recargar?',
-      [
-        { id: 'topup_10000', title: '$10.000' },
-        { id: 'topup_20000', title: '$20.000' },
-        { id: 'topup_50000', title: '$50.000' },
-      ]
-    );
+    await this.wa.sendButtonMessage(from, '¿Cuánto quieres recargar?', [
+      { id: 'topup_10000', title: '$10.000' },
+      { id: 'topup_20000', title: '$20.000' },
+      { id: 'topup_50000', title: '$50.000' },
+    ]);
   }
 
   private async startChangePinFlow(from: string, userId: string): Promise<void> {
     await setSession(from, {
-      userId, waId: from, state: 'CHANGE_PIN_CURRENT', data: {}, lastActivity: Date.now(),
+      userId,
+      waId: from,
+      state: 'CHANGE_PIN_CURRENT',
+      data: {},
+      lastActivity: Date.now(),
     });
     await this.wa.sendTextMessage(from, 'Escribe tu PIN actual:');
   }
 
-  private async handleChangePinFlow(from: string, _userId: string, text: string, session: ConversationSession): Promise<void> {
+  private async handleChangePinFlow(
+    from: string,
+    _userId: string,
+    text: string,
+    session: ConversationSession,
+  ): Promise<void> {
     switch (session.state as State) {
       case 'CHANGE_PIN_CURRENT': {
         const verify = await this.users.verifyUserPin(from, text);
@@ -578,7 +625,7 @@ export class BotService {
         return;
       }
       case 'CHANGE_PIN_CONFIRM': {
-        if (!await verifyPinHash(text, session.data.newPinHash)) {
+        if (!(await verifyPinHash(text, session.data.newPinHash))) {
           session.state = 'CHANGE_PIN_NEW';
           delete session.data.newPinHash;
           await setSession(from, session);
@@ -598,7 +645,12 @@ export class BotService {
   //  STATEFUL ROUTER
   // ═══════════════════════════════════════════════════════
 
-  private async handleStatefulFlow(from: string, userId: string, text: string, session: ConversationSession): Promise<void> {
+  private async handleStatefulFlow(
+    from: string,
+    userId: string,
+    text: string,
+    session: ConversationSession,
+  ): Promise<void> {
     const state = session.state as State;
 
     if (state.startsWith('PAY_')) {
@@ -635,7 +687,7 @@ export class BotService {
         { id: 'cmd_pay', title: 'Enviar pago' },
         { id: 'cmd_charge', title: 'Cobrar' },
         { id: 'cmd_balance', title: 'Ver saldo' },
-      ]
+      ],
     );
   }
 }

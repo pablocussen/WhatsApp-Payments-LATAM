@@ -9,6 +9,7 @@ import { formatCLP } from '../utils/format';
 import { generateReference } from '../utils/crypto';
 import { getRedis } from '../config/database';
 import { env } from '../config/environment';
+import { asyncHandler } from '../utils/async-handler';
 
 const router = Router();
 const transbank = new TransbankService();
@@ -21,92 +22,80 @@ const TOPUP_MAPPING_TTL = 3600; // 1 hora
 
 // ─── Initiate Top-up with Transbank ─────────────────────
 
-router.post('/topup/webpay', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const amount = parseInt(req.body.amount, 10);
-  if (!amount || amount < 1000 || amount > 500000) {
-    return res.status(400).json({ error: 'Monto entre $1.000 y $500.000 CLP.' });
-  }
+router.post(
+  '/webpay',
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const amount = parseInt(req.body.amount, 10);
+    if (!amount || amount < 1000 || amount > 500000) {
+      return res.status(400).json({ error: 'Monto entre $1.000 y $500.000 CLP.' });
+    }
 
-  const buyOrder = generateReference().replace('#', '');
-  const returnUrl = `${env.APP_BASE_URL}/api/v1/topup/webpay/callback`;
+    const buyOrder = generateReference().replace('#', '');
+    const returnUrl = `${env.APP_BASE_URL}/api/v1/topup/webpay/callback`;
 
-  const transaction = await transbank.createTransaction(buyOrder, amount, returnUrl);
+    const transaction = await transbank.createTransaction(buyOrder, amount, returnUrl);
 
-  // Guardar mapping buyOrder → {userId, amount} para recuperarlo en el callback
-  const redis = getRedis();
-  await redis.set(
-    `topup:webpay:${buyOrder}`,
-    JSON.stringify({ userId: req.user!.userId, waId: req.user!.waId, amount }),
-    { EX: TOPUP_MAPPING_TTL }
-  );
+    // Guardar mapping buyOrder → {userId, waId, amount} para recuperarlo en el callback
+    const redis = getRedis();
+    await redis.set(
+      `topup:webpay:${buyOrder}`,
+      JSON.stringify({ userId: req.user!.userId, waId: req.user!.waId, amount }),
+      { EX: TOPUP_MAPPING_TTL },
+    );
 
-  log.info('WebPay top-up initiated', { userId: req.user!.userId, amount, buyOrder });
+    log.info('WebPay top-up initiated', { userId: req.user!.userId, amount, buyOrder });
 
-  return res.json({
-    redirectUrl: transaction.url,
-    token: transaction.token,
-    amount,
-  });
-});
+    return res.json({
+      redirectUrl: transaction.url,
+      token: transaction.token,
+      amount,
+    });
+  }),
+);
 
 // ─── Transbank Callback (user returns here) ─────────────
 
-router.post('/topup/webpay/callback', async (req: Request, res: Response) => {
+router.post('/webpay/callback', async (req: Request, res: Response) => {
   const token = req.body.token_ws || req.query.token_ws;
 
   if (!token) {
     return res.redirect(`${env.APP_BASE_URL}/topup/error?reason=no_token`);
   }
 
-  const result = await transbank.confirmTransaction(token as string);
-
-  if (result.status !== 'AUTHORIZED') {
-    log.warn('WebPay top-up failed', { status: result.status });
-    return res.redirect(`${env.APP_BASE_URL}/topup/error?reason=${result.status}`);
-  }
-
-  // Recuperar el userId desde el token Transbank usando el buyOrder
-  // Transbank no nos devuelve el buyOrder en el callback directamente,
-  // pero el token_ws es único por transacción — lo usamos como key alternativo.
-  // Buscamos el mapping por prefijo (token_ws no es el buyOrder, necesitamos el buy_order de la respuesta)
-  // NOTA: TransbankService devuelve {status, amount, authorizationCode, cardLast4, paymentType}
-  // pero no el buyOrder. Usamos el token_ws como referencia para el log.
-  const tbkToken = token as string;
-
   try {
-    const redis = getRedis();
-    // Buscar todas las keys de topup:webpay:* (el buyOrder lo generamos nosotros)
-    // Como no tenemos el buyOrder en el callback, buscamos con scan
-    // Alternativa: Transbank devuelve buy_order en la respuesta de PUT /transactions/{token_ws}
-    // En el SDK real esto viene en data.buy_order — extendemos TransbankService si es necesario.
-    // Por ahora buscamos el mapping por token usando SCAN (máx 100 keys activas en cualquier momento)
-    const keys = await redis.keys('topup:webpay:*');
-    let mapping: { userId: string; waId: string; amount: number } | null = null;
-    let matchedKey: string | null = null;
+    const result = await transbank.confirmTransaction(token as string);
 
-    for (const key of keys) {
-      const raw = await redis.get(key);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        // Verificar que el amount coincide con lo que confirmó Transbank
-        if (parsed.amount === result.amount) {
-          mapping = parsed;
-          matchedKey = key;
-          break;
-        }
-      }
+    if (result.status !== 'AUTHORIZED') {
+      log.warn('WebPay top-up failed', { status: result.status });
+      return res.redirect(`${env.APP_BASE_URL}/topup/error?reason=${result.status}`);
     }
 
-    if (!mapping) {
-      log.error('WebPay callback: no mapping found for amount', { amount: result.amount });
-      return res.redirect(`${env.APP_BASE_URL}/topup/success?amount=${result.amount}`);
+    if (!result.buyOrder) {
+      log.error('WebPay callback: missing buy_order in Transbank response');
+      return res.redirect(`${env.APP_BASE_URL}/topup/error?reason=missing_buy_order`);
+    }
+
+    const redis = getRedis();
+    const key = `topup:webpay:${result.buyOrder}`;
+    const raw = await redis.get(key);
+
+    if (!raw) {
+      log.error('WebPay callback: no mapping found', { buyOrder: result.buyOrder });
+      return res.redirect(`${env.APP_BASE_URL}/topup/error?reason=mapping_not_found`);
     }
 
     // Eliminar el mapping para evitar doble acreditación
-    await redis.del(matchedKey!);
+    await redis.del(key);
+
+    const mapping: { userId: string; waId: string; amount: number } = JSON.parse(raw);
 
     // Acreditar wallet
-    await wallets.credit(mapping.userId, mapping.amount, `Recarga WebPay ${tbkToken.slice(0, 8)}`);
+    await wallets.credit(
+      mapping.userId,
+      mapping.amount,
+      `Recarga WebPay ${(token as string).slice(0, 8)}`,
+    );
 
     log.info('WebPay top-up credited', {
       userId: mapping.userId,
@@ -118,9 +107,11 @@ router.post('/topup/webpay/callback', async (req: Request, res: Response) => {
     try {
       await whatsapp.sendTextMessage(
         mapping.waId,
-        `✅ Recarga exitosa\n────────────────────\n${formatCLP(mapping.amount)} acreditados\nMétodo: WebPay\n────────────────────\nTu saldo ha sido actualizado.`
+        `✅ Recarga exitosa\n────────────────────\n${formatCLP(mapping.amount)} acreditados\nMétodo: WebPay\n────────────────────\nTu saldo ha sido actualizado.`,
       );
-    } catch { /* Notificación opcional */ }
+    } catch {
+      /* Notificación opcional */
+    }
 
     return res.redirect(`${env.APP_BASE_URL}/topup/success?amount=${result.amount}`);
   } catch (err) {
@@ -131,44 +122,52 @@ router.post('/topup/webpay/callback', async (req: Request, res: Response) => {
 
 // ─── Initiate Top-up with Khipu ─────────────────────────
 
-router.post('/topup/khipu', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const amount = parseInt(req.body.amount, 10);
-  if (!amount || amount < 1000 || amount > 500000) {
-    return res.status(400).json({ error: 'Monto entre $1.000 y $500.000 CLP.' });
-  }
+router.post(
+  '/khipu',
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const amount = parseInt(req.body.amount, 10);
+    if (!amount || amount < 1000 || amount > 500000) {
+      return res.status(400).json({ error: 'Monto entre $1.000 y $500.000 CLP.' });
+    }
 
-  const reference = generateReference();
-  const notifyUrl = `${env.APP_BASE_URL}/api/v1/topup/khipu/notify`;
-  const returnUrl = `${env.APP_BASE_URL}/topup/success`;
+    const reference = generateReference();
+    const notifyUrl = `${env.APP_BASE_URL}/api/v1/topup/khipu/notify`;
+    const returnUrl = `${env.APP_BASE_URL}/topup/success`;
 
-  const payment = await khipu.createPayment(
-    `Recarga WhatPay ${formatCLP(amount)}`,
-    amount,
-    notifyUrl,
-    returnUrl,
-    reference
-  );
+    const payment = await khipu.createPayment(
+      `Recarga WhatPay ${formatCLP(amount)}`,
+      amount,
+      notifyUrl,
+      returnUrl,
+      reference,
+    );
 
-  // Guardar mapping paymentId → {userId, waId, amount}
-  const redis = getRedis();
-  await redis.set(
-    `topup:khipu:${payment.paymentId}`,
-    JSON.stringify({ userId: req.user!.userId, waId: req.user!.waId, amount }),
-    { EX: TOPUP_MAPPING_TTL }
-  );
+    // Guardar mapping paymentId → {userId, waId, amount}
+    const redis = getRedis();
+    await redis.set(
+      `topup:khipu:${payment.paymentId}`,
+      JSON.stringify({ userId: req.user!.userId, waId: req.user!.waId, amount }),
+      { EX: TOPUP_MAPPING_TTL },
+    );
 
-  log.info('Khipu top-up initiated', { userId: req.user!.userId, amount, paymentId: payment.paymentId });
+    log.info('Khipu top-up initiated', {
+      userId: req.user!.userId,
+      amount,
+      paymentId: payment.paymentId,
+    });
 
-  return res.json({
-    paymentUrl: payment.paymentUrl,
-    paymentId: payment.paymentId,
-    amount,
-  });
-});
+    return res.json({
+      paymentUrl: payment.paymentUrl,
+      paymentId: payment.paymentId,
+      amount,
+    });
+  }),
+);
 
 // ─── Khipu Notification Webhook ─────────────────────────
 
-router.post('/topup/khipu/notify', async (req: Request, res: Response) => {
+router.post('/khipu/notify', async (req: Request, res: Response) => {
   const { notification_token, api_version } = req.body;
 
   if (!khipu.verifyNotification(notification_token, api_version)) {
@@ -212,9 +211,11 @@ router.post('/topup/khipu/notify', async (req: Request, res: Response) => {
     try {
       await whatsapp.sendTextMessage(
         mapping.waId,
-        `✅ Recarga exitosa\n────────────────────\n${formatCLP(mapping.amount)} acreditados\nMétodo: Khipu (transferencia)\nRef: ${status.paymentId}\n────────────────────\nTu saldo ha sido actualizado.`
+        `✅ Recarga exitosa\n────────────────────\n${formatCLP(mapping.amount)} acreditados\nMétodo: Khipu (transferencia)\nRef: ${status.paymentId}\n────────────────────\nTu saldo ha sido actualizado.`,
       );
-    } catch { /* Notificación opcional */ }
+    } catch {
+      /* Notificación opcional */
+    }
   } catch (err) {
     log.error('Khipu notify processing error', { error: (err as Error).message });
   }
