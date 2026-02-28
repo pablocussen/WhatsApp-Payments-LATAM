@@ -18,6 +18,7 @@ const config = {
       statements: 70,
     },
   },
+  coverageReporters: ['text', 'lcov', 'html'],
   coverageDirectory: 'coverage',
   coverageProvider: 'v8',
   verbose: true,

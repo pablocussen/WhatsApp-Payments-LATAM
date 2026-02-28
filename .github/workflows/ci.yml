@@ -15,7 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -26,12 +26,12 @@ jobs:
 
       - name: Dependency security audit
         run: npm audit --audit-level=high
-        continue-on-error: true  # warn but don't block on transitive vulns
+        continue-on-error: true
 
-      - name: Type check
+      - name: Type check (TypeScript strict)
         run: npx tsc --noEmit
 
-      - name: Lint
+      - name: Lint (ESLint)
         run: npm run lint
 
       - name: Run tests with coverage
@@ -42,5 +42,15 @@ jobs:
           JWT_SECRET: test-jwt-secret-at-least-32-characters-long
           REDIS_URL: redis://localhost:6379
 
-      - name: Build
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+          flags: unit
+          name: whatpay-coverage
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Build (TypeScript → dist/)
         run: npm run build

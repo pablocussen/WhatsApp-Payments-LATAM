@@ -16,7 +16,9 @@ const envSchema = z.object({
   WHATSAPP_APP_SECRET: z.string().optional(), // Used to validate X-Hub-Signature-256
   WHATSAPP_VERIFY_TOKEN: z.string().default('whatpay-verify-2026'),
 
-  // Transbank
+  // Transbank — defaults are Transbank's own public sandbox credentials
+  // (documented at https://www.transbankdevelopers.cl/documentacion/como_empezar#ambiente-de-integracion)
+  // Production keys are set via environment variables / Secret Manager — never hardcoded
   TRANSBANK_COMMERCE_CODE: z.string().default('597055555532'),
   TRANSBANK_API_KEY: z
     .string()
