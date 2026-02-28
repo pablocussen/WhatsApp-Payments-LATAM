@@ -885,6 +885,31 @@ describe('BotService', () => {
       );
     });
 
+    it('/ayuda command → dispatches to case "help" (getUserByWaId for name)', async () => {
+      // First call: check if user registered; Second call: inside case 'help': for name
+      mockUsers.getUserByWaId
+        .mockResolvedValueOnce(mkUser()) // handleMessage: user is registered
+        .mockResolvedValueOnce(mkUser()); // case 'help': get name
+      await bot.handleMessage(FROM, '/ayuda');
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+        FROM,
+        expect.stringContaining('/pagar'),
+        expect.any(Array),
+      );
+    });
+
+    it('/ayuda command → sendHelp with null when second getUserByWaId returns user with null name', async () => {
+      mockUsers.getUserByWaId
+        .mockResolvedValueOnce(mkUser()) // registered check
+        .mockResolvedValueOnce({ ...mkUser(), name: null }); // case 'help': null name
+      await bot.handleMessage(FROM, '/ayuda');
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+        FROM,
+        expect.any(String),
+        expect.any(Array),
+      );
+    });
+
     it('/cobrar alone (no args) → starts interactive CHARGE_ENTER_AMOUNT session', async () => {
       mockUsers.getUserByWaId.mockResolvedValue(mkUser());
 
@@ -897,6 +922,211 @@ describe('BotService', () => {
       expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('Cuánto quieres cobrar'),
+      );
+    });
+
+    // ── PAY_ENTER_PHONE branch coverage ──────────────────────
+
+    it('PAY_ENTER_PHONE: phone without 56 prefix → normalizes to 56XXXXXXXXX', async () => {
+      mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_PHONE'));
+      mockUsers.getUserByWaId
+        .mockResolvedValueOnce(mkUser()) // initial registered check
+        .mockResolvedValueOnce(null); // receiver not found after normalization
+      await bot.handleMessage(FROM, '987654321'); // no country code
+      expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+        FROM,
+        expect.stringContaining('no tiene WhatPay'),
+        expect.any(Array),
+      );
+    });
+
+    it('PAY_ENTER_PHONE: receiver with null name → falls back to formatPhone', async () => {
+      mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_PHONE'));
+      mockUsers.getUserByWaId
+        .mockResolvedValueOnce(mkUser()) // sender registered
+        .mockResolvedValueOnce({
+          id: RECEIVER_ID,
+          name: null,
+          kycLevel: 'BASIC',
+          biometricEnabled: false,
+          waId: RECEIVER_WA,
+        });
+      await bot.handleMessage(FROM, RECEIVER_WA);
+      expect(mockSetSession).toHaveBeenCalledWith(
+        FROM,
+        expect.objectContaining({ state: 'PAY_ENTER_AMOUNT' }),
+      );
+    });
+
+    // ── PAY_ENTER_PIN branch coverage ─────────────────────────
+
+    it('PAY_ENTER_PIN: payment fails without error field → default fallback message', async () => {
+      const sessionData = {
+        receiverId: RECEIVER_ID,
+        amount: 5_000,
+        receiverName: 'María',
+        receiverPhone: RECEIVER_WA,
+      };
+      mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_PIN', sessionData));
+      mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+      mockUsers.verifyUserPin.mockResolvedValue({ success: true, message: '' });
+      mockTransactions.processP2PPayment.mockResolvedValue({ success: false }); // no error field
+      await bot.handleMessage(FROM, '483920');
+      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, 'Error al procesar el pago.');
+    });
+
+    it('PAY_ENTER_PIN: success with null sender lookup → formatPhone fallback in notification', async () => {
+      const sessionData = {
+        receiverId: RECEIVER_ID,
+        amount: 5_000,
+        receiverName: 'María',
+        receiverPhone: RECEIVER_WA,
+      };
+      mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_PIN', sessionData));
+      mockUsers.getUserByWaId
+        .mockResolvedValueOnce(mkUser()) // initial registered check
+        .mockResolvedValueOnce(null); // sender lookup → null → covers sender?.name || formatPhone(from)
+      mockUsers.verifyUserPin.mockResolvedValue({ success: true, message: '' });
+      mockTransactions.processP2PPayment.mockResolvedValue({
+        success: true,
+        reference: 'WP-TEST-001',
+        senderBalance: '$5.000 CLP',
+      });
+      await bot.handleMessage(FROM, '483920');
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+        RECEIVER_WA,
+        expect.stringContaining('pago'),
+        expect.any(Array),
+      );
+    });
+
+    it('PAY_ENTER_PIN: empty session data → sd/sdn fallback to "" and 0', async () => {
+      mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_PIN', {})); // no receiverId, amount
+      mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+      mockUsers.verifyUserPin.mockResolvedValue({ success: true, message: '' });
+      mockTransactions.processP2PPayment.mockResolvedValue({ success: false });
+      await bot.handleMessage(FROM, '483920');
+      expect(mockTransactions.processP2PPayment).toHaveBeenCalledWith(
+        expect.objectContaining({ receiverId: '', amount: 0 }),
+      );
+    });
+
+    // ── /cobrar description fallback ──────────────────────────
+
+    it('/cobrar with amount but no description → uses "Pago" as default', async () => {
+      mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+      mockPaymentLinks.createLink.mockResolvedValue({
+        amountFormatted: '$3.500 CLP',
+        url: 'https://whatpay.cl/p/DEF456',
+      });
+      await bot.handleMessage(FROM, '/cobrar 3500'); // no description
+      expect(mockPaymentLinks.createLink).toHaveBeenCalledWith(
+        expect.objectContaining({ description: 'Pago' }),
+      );
+    });
+
+    // ── showProfile branch coverage ───────────────────────────
+
+    it('/perfil command → silent no-op when getUserById returns null', async () => {
+      mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+      mockUsers.getUserById.mockResolvedValue(null);
+      await bot.handleMessage(FROM, '/perfil');
+      expect(mockWa.sendTextMessage).not.toHaveBeenCalled();
+    });
+
+    it('/perfil command → shows "Sin nombre" when user.name is null', async () => {
+      mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+      mockUsers.getUserById.mockResolvedValue({
+        id: USER_ID,
+        name: null,
+        kycLevel: 'BASIC',
+        biometricEnabled: false,
+        waId: FROM,
+        createdAt: new Date(),
+      });
+      mockWallets.getBalance.mockResolvedValue({ formatted: '$0 CLP', amount: 0 });
+      mockTransactions.getTransactionStats.mockResolvedValue({
+        totalSent: 0,
+        totalReceived: 0,
+        txCount: 0,
+      });
+      await bot.handleMessage(FROM, '/perfil');
+      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+        FROM,
+        expect.stringContaining('Sin nombre'),
+      );
+    });
+
+    it('/perfil command → falls back to BASIC limits for unknown kycLevel', async () => {
+      mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+      mockUsers.getUserById.mockResolvedValue({
+        id: USER_ID,
+        name: 'Juan',
+        kycLevel: 'PREMIUM',
+        biometricEnabled: false,
+        waId: FROM,
+        createdAt: new Date(),
+      });
+      mockWallets.getBalance.mockResolvedValue({ formatted: '$0 CLP', amount: 0 });
+      mockTransactions.getTransactionStats.mockResolvedValue({
+        totalSent: 0,
+        totalReceived: 0,
+        txCount: 0,
+      });
+      await bot.handleMessage(FROM, '/perfil');
+      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('200.000'));
+    });
+
+    it('/perfil command → shows "Activada" when biometricEnabled is true', async () => {
+      mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+      mockUsers.getUserById.mockResolvedValue({
+        id: USER_ID,
+        name: 'Juan',
+        kycLevel: 'BASIC',
+        biometricEnabled: true,
+        waId: FROM,
+        createdAt: new Date(),
+      });
+      mockWallets.getBalance.mockResolvedValue({ formatted: '$0 CLP', amount: 0 });
+      mockTransactions.getTransactionStats.mockResolvedValue({
+        totalSent: 0,
+        totalReceived: 0,
+        txCount: 0,
+      });
+      await bot.handleMessage(FROM, '/perfil');
+      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+        FROM,
+        expect.stringContaining('Activada'),
+      );
+    });
+
+    // ── KYC + registration branch coverage ───────────────────
+
+    it('/kyc command → silent no-op when getUserById returns null', async () => {
+      mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+      mockUsers.getUserById.mockResolvedValue(null);
+      await bot.handleMessage(FROM, '/kyc');
+      expect(mockSetSession).not.toHaveBeenCalled();
+    });
+
+    it('REGISTER_PIN_CONFIRM: createUser fails without error field → default error message', async () => {
+      mockGetSession.mockResolvedValue(
+        mkSession('REGISTER_PIN_CONFIRM', { rut: '76354771-K', pinHash: MOCKED_HASH }),
+      );
+      mockVerifyPinHash.mockResolvedValue(true);
+      mockUsers.createUser.mockResolvedValue({ success: false }); // no error field
+      await bot.handleMessage(FROM, '483920');
+      expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, 'Error al crear la cuenta.');
+    });
+
+    it('text command "pagar" (no slash) → routes to PAY flow (covers || exact-match branch)', async () => {
+      mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+      await bot.handleMessage(FROM, 'pagar');
+      expect(mockSetSession).toHaveBeenCalledWith(
+        FROM,
+        expect.objectContaining({ state: 'PAY_ENTER_PHONE' }),
       );
     });
   });
