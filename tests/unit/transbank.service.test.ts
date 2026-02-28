@@ -14,6 +14,7 @@ jest.mock('../../src/config/environment', () => ({
 }));
 
 import { TransbankService } from '../../src/services/transbank.service';
+import { env } from '../../src/config/environment';
 
 // ─── fetch mock helpers ─────────────────────────────────
 
@@ -55,6 +56,19 @@ describe('TransbankService', () => {
 
       const [url] = (global.fetch as jest.Mock).mock.calls[0];
       expect(url).toContain('webpay3gint.transbank.cl');
+    });
+
+    it('uses production URL when TRANSBANK_ENVIRONMENT is "production"', () => {
+      (env as Record<string, unknown>).TRANSBANK_ENVIRONMENT = 'production';
+      const prodSvc = new TransbankService();
+      (env as Record<string, unknown>).TRANSBANK_ENVIRONMENT = 'integration'; // restore
+
+      mockFetchOk({ token: 'prod-tok', url: 'https://webpay3g.transbank.cl/redirect' });
+      prodSvc.createTransaction('order-1', 10_000, 'http://return');
+
+      const [url] = (global.fetch as jest.Mock).mock.calls[0];
+      expect(url).toContain('webpay3g.transbank.cl');
+      expect(url).not.toContain('webpay3gint');
     });
   });
 

@@ -159,6 +159,13 @@ describe('TransactionService.processP2PPayment', () => {
       const result = await svc.processP2PPayment({ ...baseReq, amount: 500_000 });
       expect(result.success).toBe(true);
     });
+
+    it('falls back to BASIC limits for unknown kycLevel', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ id: SENDER_ID, kycLevel: 'UNKNOWN_LEVEL' });
+      // Amount within BASIC perTx (50000) → should succeed with fallback limits
+      const result = await svc.processP2PPayment({ ...baseReq, amount: 10_000 });
+      expect(result.success).toBe(true);
+    });
   });
 
   // ─── Fraud checks ──────────────────────────────────────
@@ -395,6 +402,25 @@ describe('TransactionService.getTransactionHistory', () => {
 
     // Should show receiver waId as fallback for name
     expect(result).toContain('+56999999999');
+  });
+
+  it('falls back to sender waId when sender name is null (receiver view)', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([
+      {
+        senderId: SENDER_ID,
+        receiverId: RECEIVER_ID,
+        amount: BigInt(7_000),
+        reference: '#WP-2026-RCV',
+        createdAt: new Date('2026-02-28T11:00:00Z'),
+        sender: { name: null, waId: SENDER_WA_ID },
+        receiver: { name: 'María', waId: '+56987654321' },
+      },
+    ]);
+
+    const result = await svc.getTransactionHistory(RECEIVER_ID);
+
+    // Should use sender.waId as fallback (sender.name is null, isSender=false → line 224)
+    expect(result).toContain(SENDER_WA_ID);
   });
 });
 

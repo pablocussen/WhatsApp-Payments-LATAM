@@ -4,8 +4,8 @@
 > Backend en Node.js + TypeScript, desplegado en GCP Cloud Run (Santiago).
 
 [![CI](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml/badge.svg)](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-320%2F320%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
-[![Coverage](https://img.shields.io/badge/coverage-93%25%20branches-brightgreen)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
+[![Tests](https://img.shields.io/badge/tests-327%2F327%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
+[![Coverage](https://img.shields.io/badge/coverage-95%25%20branches-brightgreen)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![GCP Cloud Run](https://img.shields.io/badge/deployed-GCP%20Cloud%20Run-4285F4?logo=googlecloud&logoColor=white)](https://whatpay-api-930472612593.southamerica-west1.run.app/health)
 [![API Docs](https://img.shields.io/badge/API-Swagger%20Docs-85EA2D?logo=swagger&logoColor=black)](https://whatpay-api-930472612593.southamerica-west1.run.app/api/docs)
@@ -88,7 +88,7 @@ WhatPay permite enviar y recibir pagos **directamente desde una conversación de
 | **IaC** | Terraform (main.tf — VPC, Cloud Run, SQL, Redis, KMS, Pub/Sub) |
 | **CI/CD** | GitHub Actions + Google Cloud Build |
 | **Seguridad** | JWT · bcrypt cost 12 · AES-256-GCM · WebAuthn · Rate limiting Redis |
-| **Testing** | Jest 29 · ts-jest · v8 coverage (320 tests, 19 suites, 93% branches) |
+| **Testing** | Jest 29 · ts-jest · v8 coverage (327 tests, 19 suites, 95% branches) |
 
 ---
 
@@ -174,8 +174,8 @@ npm run db:push
 npm run dev
 
 # Tests
-npm test                # 320/320
-npm run test:coverage   # con reporte de cobertura (93% branches)
+npm test                # 327/327
+npm run test:coverage   # con reporte de cobertura (95% branches)
 ```
 
 ### Variables de entorno requeridas
@@ -196,8 +196,8 @@ El resto tiene defaults seguros para desarrollo. Ver `.env.example` para todas l
 | `npm run dev` | Servidor desarrollo (hot reload con tsx) |
 | `npm run build` | Compilar TypeScript → dist/ |
 | `npm start` | Ejecutar build de producción |
-| `npm test` | 320 tests (19 suites — unit + integración) |
-| `npm run test:coverage` | Tests + reporte de cobertura (v8, 93% branches) |
+| `npm test` | 327 tests (19 suites — unit + integración) |
+| `npm run test:coverage` | Tests + reporte de cobertura (v8, 95% branches) |
 | `npm run lint` | ESLint en src/ |
 | `npm run docker:up` | Levantar PostgreSQL + Redis locales |
 | `npm run db:push` | Sincronizar schema Prisma con DB |
@@ -220,7 +220,7 @@ WhatsApp-Payments-LATAM/
 │   │   ├── merchant.routes.ts  # /merchants — dashboard, liquidación
 │   │   └── topup.routes.ts     # /topup — WebPay + Khipu (Redis mapping)
 │   ├── services/
-│   │   ├── bot.service.ts      # FSM conversacional WhatsApp (15 estados)
+│   │   ├── bot.service.ts      # FSM conversacional WhatsApp (16 estados)
 │   │   ├── user.service.ts     # Registro, KYC, PIN (setNewPin, setKycLevel)
 │   │   ├── wallet.service.ts   # Saldo, crédito/débito, transferencias atómicas
 │   │   ├── transaction.service.ts  # Pagos P2P, comisiones, historial
@@ -241,7 +241,7 @@ WhatsApp-Payments-LATAM/
 │       ├── database.ts         # Prisma + Redis + sessions
 │       └── logger.ts           # Structured logging
 ├── tests/
-│   ├── unit/                   # 19 suites · 320 tests (todos los servicios)
+│   ├── unit/                   # 19 suites · 327 tests (todos los servicios)
 │   └── integration/            # api.test.ts (supertest, endpoints reales)
 ├── docs/
 │   ├── openapi.json            # OpenAPI 3.1 spec (servido en /api/docs)
@@ -269,12 +269,12 @@ WhatsApp-Payments-LATAM/
 
 ## Estado
 
-- **Tests**: 320/320 pasando (19 suites — todos los servicios, 93% branch coverage)
+- **Tests**: 327/327 pasando (19 suites — todos los servicios, 95% branch coverage)
 - **TypeScript**: 0 errores (strict mode)
 - **Seguridad**: PIN como bcrypt hash, RUT como HMAC-SHA256, SELECT FOR UPDATE anti double-spend, idempotencia en recargas, bloqueo de cuenta tras 3 intentos
 - **API Docs**: Swagger UI en `/api/docs` con OpenAPI 3.1 spec completo
 - **Producción**: API live en GCP Cloud Run — región `southamerica-west1` (Santiago)
-- **Bot**: Máquina de estados con 15 estados — registro, pagos P2P, cobros, change PIN, historial, perfil
+- **Bot**: Máquina de estados con 16 estados — registro, pagos P2P, cobros, change PIN, historial, perfil, KYC upgrade
 - **Infraestructura**: Terraform provisioned (VPC, Cloud SQL, Memorystore, KMS, Pub/Sub, Cloud Run)
 
 ---

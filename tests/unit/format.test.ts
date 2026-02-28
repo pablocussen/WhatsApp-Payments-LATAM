@@ -39,6 +39,11 @@ describe('Phone Normalization', () => {
     expect(normalizePhone('912345678')).toBe('56912345678');
     expect(normalizePhone('+56-9-1234-5678')).toBe('56912345678');
   });
+
+  it('returns non-Chilean digits as-is (fallback branch)', () => {
+    // +1 800 123 4567 → digits = '18001234567' → no Chilean pattern → return as-is
+    expect(normalizePhone('+1 800 123 4567')).toBe('18001234567');
+  });
 });
 
 describe('Date Formatting', () => {

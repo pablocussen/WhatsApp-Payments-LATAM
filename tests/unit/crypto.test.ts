@@ -34,6 +34,11 @@ describe('AES-256-GCM Encryption', () => {
     const wrongKey = Buffer.from('1'.repeat(64), 'hex');
     expect(() => decrypt(encrypted, wrongKey)).toThrow();
   });
+
+  it('throws on invalid ciphertext format (fewer than 3 colon-separated parts)', () => {
+    expect(() => decrypt('onlyone', TEST_KEY)).toThrow('Invalid ciphertext format');
+    expect(() => decrypt('only:two', TEST_KEY)).toThrow('Invalid ciphertext format');
+  });
 });
 
 describe('HMAC Hash', () => {
@@ -82,6 +87,12 @@ describe('RUT Validation', () => {
   it('handles RUT with K check digit', () => {
     expect(validateRut('10.000.013-K')).toBe(true);
     expect(validateRut('10000013k')).toBe(true);
+  });
+
+  it('handles RUT with 0 check digit (remainder === 11 → "0")', () => {
+    // 20.406.080-0: sum=88, 88%11=0, remainder=11 → '0'
+    expect(validateRut('20.406.080-0')).toBe(true);
+    expect(validateRut('204060800')).toBe(true);
   });
 });
 

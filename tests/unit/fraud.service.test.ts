@@ -235,4 +235,22 @@ describe('FraudService.checkTransaction', () => {
       expect(result.score).toBeLessThanOrEqual(1.0);
     });
   });
+
+  // ─── Velocity counter error handling ────────────────────
+
+  describe('incrementVelocityCounter Redis error', () => {
+    it('silently swallows Redis errors (non-critical path)', async () => {
+      // Redis multi().exec() throws → catch {} swallows it → result still returns
+      mockRedis.multi.mockReturnValue({
+        incr: jest.fn().mockReturnThis(),
+        expire: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockRejectedValue(new Error('Redis connection lost')),
+      });
+
+      // Should resolve without throwing even if Redis fails
+      const result = await svc.checkTransaction(BASE_INPUT);
+      expect(result).toBeDefined();
+      expect(result.action).toBe('approve');
+    });
+  });
 });
