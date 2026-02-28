@@ -78,6 +78,90 @@ describe('WalletService', () => {
     });
   });
 
+  // ─── debit ─────────────────────────────────────────────
+
+  describe('debit', () => {
+    it('rejects non-positive amounts', async () => {
+      await expect(svc.debit('uid-1', 0, 'test')).rejects.toThrow('positive');
+      await expect(svc.debit('uid-1', -50, 'test')).rejects.toThrow('positive');
+    });
+
+    it('throws InsufficientFundsError when balance is too low', async () => {
+      mockTx.$queryRaw.mockResolvedValue([{ balance: '5000' }]);
+
+      await expect(svc.debit('uid-1', 10_000, 'Pago')).rejects.toBeInstanceOf(
+        InsufficientFundsError,
+      );
+    });
+
+    it('throws InsufficientFundsError when wallet row not found ($queryRaw returns empty)', async () => {
+      mockTx.$queryRaw.mockResolvedValue([]); // no row returned
+
+      await expect(svc.debit('uid-missing', 10_000, 'Pago')).rejects.toBeInstanceOf(
+        InsufficientFundsError,
+      );
+    });
+
+    it('decrements balance on success and returns new balance', async () => {
+      mockTx.$queryRaw.mockResolvedValue([{ balance: '50000' }]);
+      mockTx.wallet.update.mockResolvedValue({ ...mockWallet, balance: BigInt(40_000) });
+
+      const result = await svc.debit('uid-1', 10_000, 'Pago P2P');
+
+      expect(result.balance).toBe(40_000);
+      expect(mockTx.wallet.update).toHaveBeenCalledWith({
+        where: { userId: 'uid-1' },
+        data: { balance: { decrement: 10_000 } },
+      });
+    });
+  });
+
+  // ─── transfer ──────────────────────────────────────────
+
+  describe('transfer', () => {
+    const SENDER = 'sender-uuid-001';
+    const RECEIVER = 'receiver-uuid-002';
+
+    it('rejects self-transfer', async () => {
+      await expect(svc.transfer('same', 'same', 1_000, 'test')).rejects.toThrow('yourself');
+    });
+
+    it('rejects non-positive amounts', async () => {
+      await expect(svc.transfer(SENDER, RECEIVER, 0, 'test')).rejects.toThrow('positive');
+    });
+
+    it('throws InsufficientFundsError when sender balance is too low', async () => {
+      mockTx.$queryRaw.mockResolvedValue([{ balance: '500' }]);
+
+      await expect(svc.transfer(SENDER, RECEIVER, 10_000, 'Pago')).rejects.toBeInstanceOf(
+        InsufficientFundsError,
+      );
+    });
+
+    it('throws InsufficientFundsError when sender wallet row not found ($queryRaw empty)', async () => {
+      mockTx.$queryRaw.mockResolvedValue([]);
+
+      await expect(svc.transfer(SENDER, RECEIVER, 10_000, 'Pago')).rejects.toBeInstanceOf(
+        InsufficientFundsError,
+      );
+    });
+
+    it('transfers atomically: debits sender and credits receiver', async () => {
+      mockTx.$queryRaw.mockResolvedValue([{ balance: '50000' }]);
+      const senderWallet = { ...mockWallet, userId: SENDER, balance: BigInt(40_000) };
+      const receiverWallet = { ...mockWallet, userId: RECEIVER, balance: BigInt(60_000) };
+      mockTx.wallet.update
+        .mockResolvedValueOnce(senderWallet)
+        .mockResolvedValueOnce(receiverWallet);
+
+      const result = await svc.transfer(SENDER, RECEIVER, 10_000, 'Pago P2P');
+
+      expect(result.senderBalance.balance).toBe(40_000);
+      expect(result.receiverBalance.balance).toBe(60_000);
+      expect(mockTx.wallet.update).toHaveBeenCalledTimes(2);
+    });
+  });
+
   // ─── InsufficientFundsError ────────────────────────────
 
   describe('InsufficientFundsError', () => {

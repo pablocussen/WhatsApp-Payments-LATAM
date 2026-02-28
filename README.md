@@ -4,8 +4,8 @@
 > Backend en Node.js + TypeScript, desplegado en GCP Cloud Run (Santiago).
 
 [![CI](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml/badge.svg)](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-147%2F147%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
-[![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
+[![Tests](https://img.shields.io/badge/tests-320%2F320%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
+[![Coverage](https://img.shields.io/badge/coverage-93%25%20branches-brightgreen)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![GCP Cloud Run](https://img.shields.io/badge/deployed-GCP%20Cloud%20Run-4285F4?logo=googlecloud&logoColor=white)](https://whatpay-api-930472612593.southamerica-west1.run.app/health)
 [![API Docs](https://img.shields.io/badge/API-Swagger%20Docs-85EA2D?logo=swagger&logoColor=black)](https://whatpay-api-930472612593.southamerica-west1.run.app/api/docs)
@@ -88,7 +88,7 @@ WhatPay permite enviar y recibir pagos **directamente desde una conversación de
 | **IaC** | Terraform (main.tf — VPC, Cloud Run, SQL, Redis, KMS, Pub/Sub) |
 | **CI/CD** | GitHub Actions + Google Cloud Build |
 | **Seguridad** | JWT · bcrypt cost 12 · AES-256-GCM · WebAuthn · Rate limiting Redis |
-| **Testing** | Jest 29 · ts-jest (73 tests, 5 suites) |
+| **Testing** | Jest 29 · ts-jest · v8 coverage (320 tests, 19 suites, 93% branches) |
 
 ---
 
@@ -96,19 +96,29 @@ WhatPay permite enviar y recibir pagos **directamente desde una conversación de
 
 | Método | Endpoint | Auth | Descripción |
 |--------|----------|------|-------------|
-| `GET` | `/health` | — | Estado del servicio |
+| `GET` | `/` | — | Info del servicio |
+| `GET` | `/health` | — | Estado del servicio (Redis + DB) |
 | `GET` | `/api/docs` | — | Swagger UI interactivo |
 | `POST` | `/api/v1/users/register` | — | Registro (RUT + PIN 6 dígitos) |
 | `POST` | `/api/v1/users/login` | — | PIN → JWT (30min, bloqueo 3 intentos) |
-| `GET` | `/api/v1/users/profile` | JWT | Perfil + nivel KYC |
-| `GET` | `/api/v1/payments/balance` | JWT | Saldo del wallet |
-| `POST` | `/api/v1/payments/pay` | JWT | Pago P2P (gratis, atómico) |
+| `GET` | `/api/v1/users/me` | JWT | Perfil + saldo + estadísticas |
+| `GET` | `/api/v1/payments/wallet/balance` | JWT | Saldo del wallet |
+| `POST` | `/api/v1/payments/pay` | JWT | Pago P2P (gratis, atómico, anti double-spend) |
 | `POST` | `/api/v1/payments/links` | JWT | Crear link de cobro |
+| `GET` | `/api/v1/payments/links` | JWT | Listar mis links activos |
+| `GET` | `/api/v1/payments/links/:code` | — | Resolver link de cobro (público) |
+| `DELETE` | `/api/v1/payments/links/:id` | JWT | Desactivar link de cobro |
 | `GET` | `/api/v1/payments/history` | JWT | Historial de transacciones |
-| `POST` | `/api/v1/topup/webpay` | JWT | Iniciar recarga WebPay |
+| `POST` | `/api/v1/topup/webpay` | JWT | Iniciar recarga Transbank WebPay |
+| `POST` | `/api/v1/topup/webpay/callback` | — | Callback Transbank (acredita wallet) |
 | `POST` | `/api/v1/topup/khipu` | JWT | Iniciar recarga Khipu |
-| `GET` | `/api/v1/merchants/dashboard` | JWT | Dashboard comercio |
-| `POST` | `/api/v1/webhook` | — | Webhook WhatsApp (deduplicado) |
+| `POST` | `/api/v1/topup/khipu/notify` | — | Notificación Khipu (acredita wallet) |
+| `GET` | `/api/v1/merchants/dashboard` | JWT+KYC | Dashboard comercio (INTERMEDIATE+) |
+| `GET` | `/api/v1/merchants/transactions` | JWT+KYC | Transacciones paginadas |
+| `GET` | `/api/v1/merchants/settlement` | JWT+KYC | Reporte de liquidación |
+| `GET` | `/api/v1/webhook` | — | Verificación webhook Meta |
+| `POST` | `/api/v1/webhook` | — | Mensajes WhatsApp (deduplicado, HMAC) |
+| `GET` | `/c/:code` | — | Redirect a link de cobro |
 
 > Documentación interactiva completa: [`/api/docs`](https://whatpay-api-930472612593.southamerica-west1.run.app/api/docs)
 
@@ -164,8 +174,8 @@ npm run db:push
 npm run dev
 
 # Tests
-npm test                # 73/73
-npm run test:coverage   # con reporte de cobertura
+npm test                # 320/320
+npm run test:coverage   # con reporte de cobertura (93% branches)
 ```
 
 ### Variables de entorno requeridas
@@ -186,8 +196,8 @@ El resto tiene defaults seguros para desarrollo. Ver `.env.example` para todas l
 | `npm run dev` | Servidor desarrollo (hot reload con tsx) |
 | `npm run build` | Compilar TypeScript → dist/ |
 | `npm start` | Ejecutar build de producción |
-| `npm test` | 73 tests (unit + integración) |
-| `npm run test:coverage` | Tests + reporte de cobertura |
+| `npm test` | 320 tests (19 suites — unit + integración) |
+| `npm run test:coverage` | Tests + reporte de cobertura (v8, 93% branches) |
 | `npm run lint` | ESLint en src/ |
 | `npm run docker:up` | Levantar PostgreSQL + Redis locales |
 | `npm run db:push` | Sincronizar schema Prisma con DB |
@@ -231,8 +241,8 @@ WhatsApp-Payments-LATAM/
 │       ├── database.ts         # Prisma + Redis + sessions
 │       └── logger.ts           # Structured logging
 ├── tests/
-│   ├── unit/                   # crypto, auth, format, payment (60 tests)
-│   └── integration/            # api.test.ts (13 tests)
+│   ├── unit/                   # 19 suites · 320 tests (todos los servicios)
+│   └── integration/            # api.test.ts (supertest, endpoints reales)
 ├── docs/
 │   ├── openapi.json            # OpenAPI 3.1 spec (servido en /api/docs)
 │   └── *.md                    # Arquitectura, legal, UX, negocio, seguridad
@@ -259,10 +269,12 @@ WhatsApp-Payments-LATAM/
 
 ## Estado
 
-- **Tests**: 73/73 pasando (5 suites — unit + integración)
+- **Tests**: 320/320 pasando (19 suites — todos los servicios, 93% branch coverage)
 - **TypeScript**: 0 errores (strict mode)
-- **Seguridad**: P0 y P1 resueltos (PIN hash, wallet credit, idempotencia)
+- **Seguridad**: PIN como bcrypt hash, RUT como HMAC-SHA256, SELECT FOR UPDATE anti double-spend, idempotencia en recargas, bloqueo de cuenta tras 3 intentos
+- **API Docs**: Swagger UI en `/api/docs` con OpenAPI 3.1 spec completo
 - **Producción**: API live en GCP Cloud Run — región `southamerica-west1` (Santiago)
+- **Bot**: Máquina de estados con 15 estados — registro, pagos P2P, cobros, change PIN, historial, perfil
 - **Infraestructura**: Terraform provisioned (VPC, Cloud SQL, Memorystore, KMS, Pub/Sub, Cloud Run)
 
 ---

@@ -307,3 +307,128 @@ describe('TransactionService.processP2PPayment', () => {
     });
   });
 });
+
+// ─── getTransactionHistory ────────────────────────────────
+
+describe('TransactionService.getTransactionHistory', () => {
+  let svc: TransactionService;
+
+  beforeEach(() => {
+    svc = new TransactionService();
+    jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation(
+      async (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
+    );
+  });
+
+  it('returns "no transactions" message when history is empty', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([]);
+
+    const result = await svc.getTransactionHistory(SENDER_ID);
+
+    expect(result).toBe('No tienes transacciones aún.');
+  });
+
+  it('shows "↑ Enviado" when userId is the sender', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([
+      {
+        senderId: SENDER_ID,
+        receiverId: RECEIVER_ID,
+        amount: BigInt(5_000),
+        reference: '#WP-2026-ABC',
+        createdAt: new Date('2026-02-15T10:00:00Z'),
+        sender: { name: 'Juan', waId: SENDER_WA_ID },
+        receiver: { name: 'María', waId: '+56987654321' },
+      },
+    ]);
+
+    const result = await svc.getTransactionHistory(SENDER_ID);
+
+    expect(result).toContain('↑ Enviado');
+    expect(result).toContain('María');
+    expect(result).toContain('#WP-2026-ABC');
+  });
+
+  it('shows "↓ Recibido" when userId is the receiver', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([
+      {
+        senderId: SENDER_ID,
+        receiverId: RECEIVER_ID,
+        amount: BigInt(8_000),
+        reference: '#WP-2026-XYZ',
+        createdAt: new Date('2026-02-20T12:00:00Z'),
+        sender: { name: 'Juan', waId: SENDER_WA_ID },
+        receiver: { name: 'María', waId: '+56987654321' },
+      },
+    ]);
+
+    const result = await svc.getTransactionHistory(RECEIVER_ID);
+
+    expect(result).toContain('↓ Recibido');
+    expect(result).toContain('Juan');
+  });
+
+  it('respects custom limit parameter', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([]);
+
+    await svc.getTransactionHistory(SENDER_ID, 10);
+
+    expect(mockPrisma.transaction.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 10 }),
+    );
+  });
+
+  it('falls back to waId when sender/receiver name is null', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([
+      {
+        senderId: SENDER_ID,
+        receiverId: RECEIVER_ID,
+        amount: BigInt(3_000),
+        reference: '#WP-2026-NUL',
+        createdAt: new Date('2026-02-28T09:00:00Z'),
+        sender: { name: null, waId: SENDER_WA_ID },
+        receiver: { name: null, waId: '+56999999999' },
+      },
+    ]);
+
+    const result = await svc.getTransactionHistory(SENDER_ID);
+
+    // Should show receiver waId as fallback for name
+    expect(result).toContain('+56999999999');
+  });
+});
+
+// ─── getTransactionStats ─────────────────────────────────
+
+describe('TransactionService.getTransactionStats', () => {
+  let svc: TransactionService;
+
+  beforeEach(() => {
+    svc = new TransactionService();
+    jest.clearAllMocks();
+  });
+
+  it('returns aggregated sent and received totals', async () => {
+    mockPrisma.transaction.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: BigInt(50_000) }, _count: 3 })
+      .mockResolvedValueOnce({ _sum: { amount: BigInt(20_000) } });
+
+    const result = await svc.getTransactionStats(SENDER_ID);
+
+    expect(result.totalSent).toBe(50_000);
+    expect(result.totalReceived).toBe(20_000);
+    expect(result.txCount).toBe(3);
+  });
+
+  it('returns zeros when no transactions exist (null sums)', async () => {
+    mockPrisma.transaction.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: null }, _count: 0 })
+      .mockResolvedValueOnce({ _sum: { amount: null } });
+
+    const result = await svc.getTransactionStats(SENDER_ID);
+
+    expect(result.totalSent).toBe(0);
+    expect(result.totalReceived).toBe(0);
+    expect(result.txCount).toBe(0);
+  });
+});

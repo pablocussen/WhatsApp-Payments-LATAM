@@ -44,6 +44,16 @@ app.use((req, _res, next) => {
 
 // ─── Health Check ───────────────────────────────────────
 
+app.get('/', (_req, res) => {
+  res.json({
+    service: 'whatpay-api',
+    version: '0.1.0',
+    status: 'ok',
+    docs: '/api/docs',
+    health: '/health',
+  });
+});
+
 app.get('/health', async (_req, res) => {
   const checks: Record<string, 'ok' | 'error'> = {};
 

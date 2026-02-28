@@ -17,7 +17,7 @@ const mockTx = {
 };
 
 const mockPrisma = {
-  user: { findUnique: jest.fn(), update: jest.fn() },
+  user: { findUnique: jest.fn(), update: jest.fn(), count: jest.fn() },
   $transaction: jest.fn(),
 };
 
@@ -249,5 +249,185 @@ describe('UserService.verifyUserPin', () => {
     const updateArgs = mockPrisma.user.update.mock.calls[0][0].data;
     expect(updateArgs.pinAttempts).toBe(0);
     expect(updateArgs.lockedUntil).toBeInstanceOf(Date);
+  });
+});
+
+// ─── getUserByWaId / getUserById ─────────────────────────
+
+describe('UserService.getUserByWaId / getUserById', () => {
+  let svc: UserService;
+
+  beforeEach(() => {
+    svc = new UserService('0'.repeat(64));
+    jest.clearAllMocks();
+  });
+
+  const profileFields = {
+    id: 'uid-001',
+    waId: '+56912345678',
+    name: 'Juan',
+    kycLevel: 'BASIC',
+    biometricEnabled: false,
+    createdAt: new Date(),
+  };
+
+  it('getUserByWaId: returns null for unknown waId', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue(null);
+    const result = await svc.getUserByWaId('+56900000000');
+    expect(result).toBeNull();
+  });
+
+  it('getUserByWaId: returns user profile for known waId', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue(profileFields);
+    const result = await svc.getUserByWaId('+56912345678');
+    expect(result?.id).toBe('uid-001');
+    expect(result?.name).toBe('Juan');
+    expect(result?.kycLevel).toBe('BASIC');
+  });
+
+  it('getUserById: returns null for unknown id', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue(null);
+    const result = await svc.getUserById('no-such-id');
+    expect(result).toBeNull();
+  });
+
+  it('getUserById: returns user profile for known id', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      ...profileFields,
+      kycLevel: 'INTERMEDIATE',
+      biometricEnabled: true,
+    });
+    const result = await svc.getUserById('uid-001');
+    expect(result?.kycLevel).toBe('INTERMEDIATE');
+    expect(result?.biometricEnabled).toBe(true);
+  });
+});
+
+// ─── setNewPin ───────────────────────────────────────────
+
+describe('UserService.setNewPin', () => {
+  let svc: UserService;
+
+  beforeEach(() => {
+    svc = new UserService('0'.repeat(64));
+    jest.clearAllMocks();
+    mockPrisma.user.update.mockResolvedValue({});
+  });
+
+  it('throws on insecure PIN (all same digits)', async () => {
+    await expect(svc.setNewPin('+56912345678', '111111')).rejects.toThrow('inseguro');
+  });
+
+  it('throws on sequential PIN', async () => {
+    await expect(svc.setNewPin('+56912345678', '123456')).rejects.toThrow('inseguro');
+  });
+
+  it('updates user with bcrypt hash, resets attempts and lockedUntil', async () => {
+    await svc.setNewPin('+56912345678', '483920');
+
+    const updateArgs = mockPrisma.user.update.mock.calls[0][0].data;
+    expect(updateArgs.pinHash).toMatch(/^\$2[ab]\$/);
+    expect(updateArgs.pinAttempts).toBe(0);
+    expect(updateArgs.lockedUntil).toBeNull();
+  });
+});
+
+// ─── changePin ───────────────────────────────────────────
+
+describe('UserService.changePin', () => {
+  let svc: UserService;
+
+  beforeEach(() => {
+    svc = new UserService('0'.repeat(64));
+    jest.clearAllMocks();
+    mockPrisma.user.update.mockResolvedValue({});
+  });
+
+  it('returns failure when current PIN is wrong', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'uid-1',
+      pinHash: '$2b$12$intentionally_wrong',
+      pinAttempts: 0,
+      lockedUntil: null,
+    });
+
+    const result = await svc.changePin('+56912345678', 'wrongpin', '483920');
+    expect(result.success).toBe(false);
+  });
+
+  it('returns failure when new PIN is insecure', async () => {
+    // Use real hash so verifyUserPin succeeds
+    const { hashPin } = await import('../../src/utils/crypto');
+    const hash = await hashPin(VALID_PIN);
+
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'uid-1',
+      pinHash: hash,
+      pinAttempts: 0,
+      lockedUntil: null,
+    });
+
+    const result = await svc.changePin('+56912345678', VALID_PIN, '123456');
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/inseguro/i);
+  });
+
+  it('updates PIN hash on success', async () => {
+    const { hashPin } = await import('../../src/utils/crypto');
+    const hash = await hashPin(VALID_PIN);
+
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'uid-1',
+      pinHash: hash,
+      pinAttempts: 0,
+      lockedUntil: null,
+    });
+
+    const result = await svc.changePin('+56912345678', VALID_PIN, '738291');
+    expect(result.success).toBe(true);
+    // New hash should be bcrypt
+    const updateArgs = mockPrisma.user.update.mock.calls[1][0].data; // 2nd update call
+    expect(updateArgs.pinHash).toMatch(/^\$2[ab]\$/);
+  });
+});
+
+// ─── updateKycLevel ──────────────────────────────────────
+
+describe('UserService.updateKycLevel', () => {
+  let svc: UserService;
+
+  beforeEach(() => {
+    svc = new UserService('0'.repeat(64));
+    jest.clearAllMocks();
+    mockPrisma.user.update.mockResolvedValue({});
+  });
+
+  it('updates kycLevel via Prisma', async () => {
+    await svc.updateKycLevel('uid-001', 'INTERMEDIATE');
+
+    expect(mockPrisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'uid-001' },
+      data: { kycLevel: 'INTERMEDIATE' },
+    });
+  });
+});
+
+// ─── getUserCount ────────────────────────────────────────
+
+describe('UserService.getUserCount', () => {
+  let svc: UserService;
+
+  beforeEach(() => {
+    svc = new UserService('0'.repeat(64));
+    jest.clearAllMocks();
+  });
+
+  it('returns count of active users', async () => {
+    mockPrisma.user.count.mockResolvedValue(42);
+
+    const result = await svc.getUserCount();
+
+    expect(result).toBe(42);
+    expect(mockPrisma.user.count).toHaveBeenCalledWith({ where: { isActive: true } });
   });
 });

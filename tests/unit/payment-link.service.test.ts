@@ -181,6 +181,14 @@ describe('PaymentLinkService', () => {
       expect(result!.amount).toBe(25_000);
       expect(typeof result!.amount).toBe('number');
     });
+
+    it('open-amount link has null amount and null amountFormatted', async () => {
+      mockPrisma.paymentLink.findUnique.mockResolvedValue(makeDbLink({ amount: null }));
+      const result = await svc.resolveLink(SHORT_CODE);
+      expect(result).not.toBeNull();
+      expect(result!.amount).toBeNull();
+      expect(result!.amountFormatted).toBeNull();
+    });
   });
 
   // ─── incrementUse ───────────────────────────────────────
@@ -251,6 +259,15 @@ describe('PaymentLinkService', () => {
       expect(result[0].shortCode).toBe('abc111');
       expect(result[0].amount).toBe(5_000);
       expect(result[1].amount).toBe(8_500);
+    });
+
+    it('maps null amount to null in result array', async () => {
+      mockPrisma.paymentLink.findMany.mockResolvedValue([
+        makeDbLink({ shortCode: 'open-link', amount: null }),
+      ]);
+      const result = await svc.getMerchantLinks(MERCHANT_ID);
+      expect(result[0].amount).toBeNull();
+      expect(result[0].amountFormatted).toBeNull();
     });
 
     it('queries only active links', async () => {

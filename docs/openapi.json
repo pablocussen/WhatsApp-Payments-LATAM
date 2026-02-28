@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WhatPay API",
-    "description": "Plataforma de pagos peer-to-peer integrada con WhatsApp para Chile.\n\n## Autenticación\nLa mayoría de endpoints requieren JWT Bearer token obtenido en `POST /users/login`.\n\n## Flujo de usuario\n1. Registro vía WhatsApp bot (conversacional)\n2. `POST /users/register` → verifica RUT + crea PIN\n3. `POST /users/login` → PIN → JWT\n4. `POST /topup/webpay` → recarga wallet\n5. `POST /payments/pay` → envía pago P2P\n\n## Niveles KYC\n- `BASIC` — hasta $50.000/tx, $200.000/mes\n- `INTERMEDIATE` — hasta $500.000/tx, $2.000.000/mes\n- `FULL` — hasta $2.000.000/tx\n",
+    "description": "Plataforma de pagos peer-to-peer integrada con WhatsApp para Chile.\n\n## Autenticación\nLa mayoría de endpoints requieren un JWT Bearer token obtenido en `POST /api/v1/users/login`.\n\n## Flujo típico\n1. Registro vía bot WhatsApp (conversacional) o `POST /api/v1/users/register`\n2. `POST /api/v1/users/login` → PIN → JWT (30 min)\n3. `POST /api/v1/topup/webpay` → recarga wallet con Transbank\n4. `POST /api/v1/payments/pay` → envía pago P2P\n5. `POST /api/v1/payments/links` → crea link de cobro para comercios\n\n## Niveles KYC\n| Nivel | Límite por tx | Límite mensual |\n|-------|--------------|----------------|\n| `BASIC` | $50.000 | $200.000 |\n| `INTERMEDIATE` | $500.000 | $2.000.000 |\n| `FULL` | $2.000.000 | Sin límite |\n\n## Seguridad\n- PIN almacenado como bcrypt hash (cost 12)\n- RUT almacenado como HMAC-SHA256 (nunca en claro)\n- Bloqueo tras 3 intentos fallidos de PIN (15 min)\n- Rate limiting por IP en todos los endpoints\n- Todas las transferencias usan SELECT FOR UPDATE (sin double-spending)\n",
     "version": "0.1.0",
     "contact": {
       "name": "Pablo Cussen",
@@ -10,7 +10,7 @@
       "email": "pablo@cussen.cl"
     },
     "license": {
-      "name": "Privado — Portfolio Project",
+      "name": "Portfolio Project",
       "url": "https://cussen.cl/whatpay"
     }
   },
@@ -25,79 +25,149 @@
     }
   ],
   "tags": [
-    { "name": "health", "description": "Estado del servicio" },
+    { "name": "system", "description": "Estado del servicio" },
     { "name": "users", "description": "Registro, autenticación y perfil" },
-    { "name": "payments", "description": "Pagos P2P, links de cobro y saldo" },
-    { "name": "topup", "description": "Recargas vía WebPay y Khipu" },
-    { "name": "merchants", "description": "Dashboard y liquidaciones para comercios" },
-    { "name": "webhook", "description": "Webhook WhatsApp Cloud API" }
+    { "name": "payments", "description": "Pagos P2P, links de cobro, historial y saldo" },
+    { "name": "topup", "description": "Recargas de wallet vía Transbank WebPay y Khipu" },
+    { "name": "merchants", "description": "Dashboard, transacciones y liquidaciones para comercios" },
+    { "name": "webhook", "description": "Webhook WhatsApp Cloud API (uso interno de Meta)" }
   ],
   "components": {
     "securitySchemes": {
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "bearerFormat": "JWT"
+        "bearerFormat": "JWT",
+        "description": "Token JWT obtenido en POST /api/v1/users/login"
       }
     },
     "schemas": {
       "Error": {
         "type": "object",
         "properties": {
-          "error": { "type": "string" },
-          "code": { "type": "string" }
+          "error": { "type": "string", "example": "Datos inválidos." }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "properties": {
+          "token": { "type": "string", "description": "JWT Bearer token (expira en 30 min)" },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "name": { "type": "string", "nullable": true },
+              "kycLevel": { "type": "string", "enum": ["BASIC", "INTERMEDIATE", "FULL"] }
+            }
+          }
         }
       },
       "UserProfile": {
         "type": "object",
         "properties": {
-          "userId": { "type": "string", "format": "uuid" },
-          "waId": { "type": "string", "example": "56912345678" },
-          "displayName": { "type": "string" },
-          "kycLevel": { "type": "string", "enum": ["NONE", "BASIC", "INTERMEDIATE", "FULL"] },
-          "createdAt": { "type": "string", "format": "date-time" }
+          "id": { "type": "string", "format": "uuid" },
+          "waId": { "type": "string", "example": "+56912345678" },
+          "name": { "type": "string", "nullable": true },
+          "kycLevel": { "type": "string", "enum": ["BASIC", "INTERMEDIATE", "FULL"] },
+          "biometricEnabled": { "type": "boolean" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "balance": {
+            "type": "object",
+            "properties": {
+              "amount": { "type": "integer", "example": 25000 },
+              "formatted": { "type": "string", "example": "$25.000 CLP" }
+            }
+          },
+          "stats": {
+            "type": "object",
+            "properties": {
+              "totalSent": { "type": "integer" },
+              "totalReceived": { "type": "integer" },
+              "txCount": { "type": "integer" }
+            }
+          }
         }
       },
       "WalletBalance": {
         "type": "object",
         "properties": {
-          "balance": { "type": "integer", "description": "Saldo en CLP (entero, sin decimales)", "example": 25000 },
-          "currency": { "type": "string", "default": "CLP" },
-          "kycLevel": { "type": "string" },
-          "monthlySpent": { "type": "integer" },
-          "monthlyLimit": { "type": "integer" }
+          "amount": { "type": "integer", "description": "Saldo en CLP (entero)", "example": 25000 },
+          "formatted": { "type": "string", "example": "$25.000 CLP" }
         }
       },
-      "Transaction": {
+      "PaymentLinkInfo": {
         "type": "object",
         "properties": {
           "id": { "type": "string", "format": "uuid" },
-          "reference": { "type": "string", "example": "#WP-2026-A7F3B2" },
-          "type": { "type": "string", "enum": ["P2P", "PAYMENT_LINK", "TOPUP_WEBPAY", "TOPUP_KHIPU", "MERCHANT_PAYMENT"] },
-          "amount": { "type": "integer", "example": 8500 },
-          "fee": { "type": "integer", "example": 0 },
-          "status": { "type": "string", "enum": ["PENDING", "COMPLETED", "FAILED", "REVERSED"] },
+          "merchantId": { "type": "string", "format": "uuid" },
+          "merchantName": { "type": "string" },
+          "shortCode": { "type": "string", "example": "a1B2c3" },
+          "url": { "type": "string", "example": "https://whatpay-api-930472612593.southamerica-west1.run.app/c/a1B2c3" },
+          "amount": { "type": "integer", "nullable": true, "example": 15000 },
+          "amountFormatted": { "type": "string", "nullable": true, "example": "$15.000 CLP" },
+          "description": { "type": "string", "nullable": true },
+          "expiresAt": { "type": "string", "format": "date-time", "nullable": true },
+          "maxUses": { "type": "integer", "nullable": true },
+          "usesRemaining": { "type": "integer", "nullable": true },
+          "isActive": { "type": "boolean" },
           "createdAt": { "type": "string", "format": "date-time" }
         }
       },
-      "PaymentLink": {
+      "PaymentResult": {
         "type": "object",
         "properties": {
-          "code": { "type": "string", "example": "a1B2c3" },
-          "url": { "type": "string", "example": "https://whatpay.cl/c/a1B2c3" },
-          "amount": { "type": "integer", "example": 15000 },
-          "description": { "type": "string" },
-          "expiresAt": { "type": "string", "format": "date-time" }
+          "success": { "type": "boolean" },
+          "transactionId": { "type": "string", "format": "uuid" },
+          "reference": { "type": "string", "example": "#WP-2026-A7F3B2C4" },
+          "amount": { "type": "integer" },
+          "fee": { "type": "integer", "description": "Comisión en CLP (0 para pagos P2P wallet-to-wallet)" },
+          "senderBalance": { "type": "string", "description": "Saldo restante del emisor formateado" }
+        }
+      },
+      "MerchantDashboard": {
+        "type": "object",
+        "properties": {
+          "totalRevenue": { "type": "integer", "description": "Ingresos totales en CLP" },
+          "activeLinks": { "type": "integer" },
+          "totalTransactions": { "type": "integer" },
+          "recentTransactions": {
+            "type": "array",
+            "items": { "type": "object" }
+          }
         }
       }
     }
   },
   "paths": {
+    "/": {
+      "get": {
+        "tags": ["system"],
+        "summary": "Info del servicio",
+        "description": "Información básica del servicio y links útiles.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Info del servicio",
+            "content": {
+              "application/json": {
+                "example": {
+                  "service": "whatpay-api",
+                  "version": "0.1.0",
+                  "status": "ok",
+                  "docs": "/api/docs",
+                  "health": "/health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
-        "tags": ["health"],
+        "tags": ["system"],
         "summary": "Health check",
-        "description": "Estado del servicio y versión. Usado por Cloud Run y el badge de producción.",
+        "description": "Estado del servicio, Redis y base de datos. Usado por Cloud Run liveness probe.",
         "security": [],
         "responses": {
           "200": {
@@ -108,8 +178,20 @@
                   "status": "ok",
                   "service": "whatpay-api",
                   "version": "0.1.0",
-                  "timestamp": "2026-02-26T00:00:00.000Z",
-                  "environment": "production"
+                  "timestamp": "2026-02-28T00:00:00.000Z",
+                  "environment": "production",
+                  "checks": { "redis": "ok", "db": "ok" }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Servicio degradado (Redis o DB caídos)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "degraded",
+                  "checks": { "redis": "error", "db": "ok" }
                 }
               }
             }
@@ -121,7 +203,7 @@
       "post": {
         "tags": ["users"],
         "summary": "Registrar usuario",
-        "description": "Registro inicial. El RUT se encripta con AES-256-GCM en reposo.",
+        "description": "Crea una cuenta nueva. El RUT se valida con algoritmo de dígito verificador chileno y se almacena como HMAC-SHA256. El PIN se almacena como bcrypt hash (cost 12). Rate limit: 3 registros/hora por IP.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -129,21 +211,28 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["waId", "rut", "pin", "displayName"],
+                "required": ["waId", "rut", "pin"],
                 "properties": {
-                  "waId": { "type": "string", "description": "Número WhatsApp (ej: 56912345678)" },
-                  "rut": { "type": "string", "description": "RUT chileno (ej: 12.345.678-9)" },
-                  "pin": { "type": "string", "description": "PIN de 6 dígitos (no secuencial, no repetido)" },
-                  "displayName": { "type": "string" }
+                  "waId": { "type": "string", "minLength": 10, "maxLength": 15, "example": "+56912345678", "description": "Número WhatsApp con código de país" },
+                  "rut": { "type": "string", "minLength": 8, "maxLength": 12, "example": "12345678-9", "description": "RUT chileno con dígito verificador" },
+                  "pin": { "type": "string", "minLength": 6, "maxLength": 6, "example": "483920", "description": "PIN de exactamente 6 dígitos. No puede ser secuencial (123456) ni repetido (111111)" },
+                  "name": { "type": "string", "maxLength": 100, "example": "Juan Pérez" }
                 }
               }
             }
           }
         },
         "responses": {
-          "201": { "description": "Usuario creado" },
-          "400": { "description": "Datos inválidos o PIN inseguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-          "409": { "description": "Número ya registrado" }
+          "201": {
+            "description": "Usuario creado — devuelve JWT listo para usar",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } }
+            }
+          },
+          "400": {
+            "description": "Datos inválidos, RUT incorrecto o PIN inseguro",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
         }
       }
     },
@@ -151,7 +240,7 @@
       "post": {
         "tags": ["users"],
         "summary": "Autenticar con PIN",
-        "description": "Devuelve JWT con 30 min de expiración. Bloqueo tras 3 intentos fallidos (15 min).",
+        "description": "Verifica el PIN con bcrypt y devuelve JWT (30 min). Bloqueo automático de cuenta tras 3 intentos fallidos durante 15 min. Rate limit: 5 intentos/min por IP.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -161,8 +250,8 @@
                 "type": "object",
                 "required": ["waId", "pin"],
                 "properties": {
-                  "waId": { "type": "string" },
-                  "pin": { "type": "string" }
+                  "waId": { "type": "string", "example": "+56912345678" },
+                  "pin": { "type": "string", "example": "483920" }
                 }
               }
             }
@@ -172,34 +261,55 @@
           "200": {
             "description": "JWT generado",
             "content": {
-              "application/json": {
-                "example": { "token": "eyJhbGci...", "expiresIn": "30m", "kycLevel": "BASIC" }
-              }
+              "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } }
             }
           },
-          "401": { "description": "PIN incorrecto" },
-          "423": { "description": "Cuenta bloqueada por intentos fallidos" }
+          "401": {
+            "description": "Usuario no encontrado o PIN incorrecto",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "423": {
+            "description": "Cuenta bloqueada por 3 intentos fallidos (15 min)",
+            "content": {
+              "application/json": {
+                "example": { "error": "Cuenta bloqueada temporalmente. Intenta en 15 minutos.", "locked": true }
+              }
+            }
+          }
         }
       }
     },
-    "/api/v1/users/profile": {
+    "/api/v1/users/me": {
       "get": {
         "tags": ["users"],
-        "summary": "Obtener perfil",
+        "summary": "Perfil del usuario autenticado",
+        "description": "Devuelve perfil completo incluyendo saldo del wallet y estadísticas de transacciones.",
         "security": [{ "bearerAuth": [] }],
         "responses": {
-          "200": { "description": "Perfil del usuario", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserProfile" } } } },
-          "401": { "description": "Token inválido o expirado" }
+          "200": {
+            "description": "Perfil del usuario",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UserProfile" } }
+            }
+          },
+          "401": { "description": "Token inválido o expirado" },
+          "404": { "description": "Usuario no encontrado" }
         }
       }
     },
-    "/api/v1/payments/balance": {
+    "/api/v1/payments/wallet/balance": {
       "get": {
         "tags": ["payments"],
         "summary": "Consultar saldo del wallet",
         "security": [{ "bearerAuth": [] }],
         "responses": {
-          "200": { "description": "Saldo actual", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WalletBalance" } } } }
+          "200": {
+            "description": "Saldo actual en CLP",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/WalletBalance" } }
+            }
+          },
+          "401": { "description": "Token inválido o expirado" }
         }
       }
     },
@@ -207,7 +317,7 @@
       "post": {
         "tags": ["payments"],
         "summary": "Enviar pago P2P",
-        "description": "Transferencia entre wallets. Usa SELECT FOR UPDATE para prevenir double-spending. P2P es gratis.",
+        "description": "Transferencia entre wallets. Sin comisión cuando el método es `WALLET`. Usa SELECT FOR UPDATE para prevenir double-spending. Límites por KYC: BASIC $50k/tx $200k/mes, INTERMEDIATE $500k/tx $2M/mes, FULL $2M/tx.",
         "security": [{ "bearerAuth": [] }],
         "requestBody": {
           "required": true,
@@ -215,56 +325,38 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["toWaId", "amount", "pin"],
+                "required": ["receiverId", "amount", "paymentMethod"],
                 "properties": {
-                  "toWaId": { "type": "string", "description": "Número WhatsApp del destinatario" },
-                  "amount": { "type": "integer", "description": "Monto en CLP", "example": 8500 },
-                  "pin": { "type": "string", "description": "PIN del emisor para confirmar" },
-                  "description": { "type": "string", "description": "Concepto opcional" }
+                  "receiverId": { "type": "string", "format": "uuid", "description": "ID del destinatario (obtenido de búsqueda de usuario)" },
+                  "amount": { "type": "integer", "minimum": 100, "maximum": 2000000, "example": 8500, "description": "Monto en CLP" },
+                  "paymentMethod": {
+                    "type": "string",
+                    "enum": ["WALLET", "WEBPAY_CREDIT", "WEBPAY_DEBIT", "KHIPU"],
+                    "description": "WALLET = 0% fee | WEBPAY_CREDIT = 2.8% + $50 | WEBPAY_DEBIT = 1.8% + $50 | KHIPU = 1.0%"
+                  },
+                  "description": { "type": "string", "maxLength": 500 },
+                  "paymentLinkId": { "type": "string", "format": "uuid", "description": "ID del payment link (si el pago proviene de un link de cobro)" }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": {
+          "201": {
             "description": "Pago completado",
             "content": {
-              "application/json": {
-                "example": { "reference": "#WP-2026-A7F3B2", "amount": 8500, "fee": 0, "status": "COMPLETED" }
-              }
+              "application/json": { "schema": { "$ref": "#/components/schemas/PaymentResult" } }
             }
           },
-          "400": { "description": "Monto fuera de límites KYC" },
-          "402": { "description": "Saldo insuficiente" },
-          "403": { "description": "PIN incorrecto o cuenta bloqueada" }
-        }
-      }
-    },
-    "/api/v1/payments/links": {
-      "post": {
-        "tags": ["payments"],
-        "summary": "Crear link de cobro",
-        "description": "Genera enlace corto compartible (whatpay.cl/c/{code}). Expira en 24 horas.",
-        "security": [{ "bearerAuth": [] }],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["amount"],
-                "properties": {
-                  "amount": { "type": "integer", "example": 15000 },
-                  "description": { "type": "string", "example": "Almuerzo local" },
-                  "expiresInHours": { "type": "integer", "default": 24 }
-                }
-              }
-            }
+          "400": {
+            "description": "Monto fuera de límites KYC, saldo insuficiente o límite mensual alcanzado",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": { "description": "Token inválido o expirado" },
+          "403": {
+            "description": "Bloqueado por FraudService",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           }
-        },
-        "responses": {
-          "201": { "description": "Link creado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentLink" } } } }
         }
       }
     },
@@ -274,23 +366,144 @@
         "summary": "Historial de transacciones",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+            "description": "Número de transacciones a devolver"
+          }
         ],
         "responses": {
           "200": {
-            "description": "Lista de transacciones",
+            "description": "Historial formateado como texto legible",
+            "content": {
+              "application/json": {
+                "example": {
+                  "history": "Últimas 3 transacciones:\n────────────────────\n↑ Enviado | María López\n$8.500 CLP | 28/02/2026\nRef: #WP-2026-A7F3B2C4"
+                }
+              }
+            }
+          },
+          "401": { "description": "Token inválido o expirado" }
+        }
+      }
+    },
+    "/api/v1/payments/links": {
+      "post": {
+        "tags": ["payments"],
+        "summary": "Crear link de cobro",
+        "description": "Genera un enlace corto para que clientes paguen al comercio. Expira en 24h por defecto. El link redirige al endpoint público `/c/{code}`.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "amount": { "type": "integer", "minimum": 100, "maximum": 50000000, "example": 15000, "description": "Monto fijo en CLP. Si se omite, el pagador ingresa el monto (link abierto)" },
+                  "description": { "type": "string", "maxLength": 500, "example": "Almuerzo ejecutivo" },
+                  "expiresInHours": { "type": "integer", "minimum": 1, "maximum": 720, "default": 24, "description": "Horas hasta expiración (máx 30 días)" },
+                  "maxUses": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Número máximo de usos" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Link creado",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PaymentLinkInfo" } }
+            }
+          },
+          "401": { "description": "Token inválido o expirado" }
+        }
+      },
+      "get": {
+        "tags": ["payments"],
+        "summary": "Listar mis links activos",
+        "description": "Devuelve los links de cobro activos del usuario autenticado.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Lista de links activos",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "transactions": { "type": "array", "items": { "$ref": "#/components/schemas/Transaction" } },
-                    "total": { "type": "integer" }
+                    "links": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/PaymentLinkInfo" }
+                    }
                   }
                 }
               }
             }
+          },
+          "401": { "description": "Token inválido o expirado" }
+        }
+      }
+    },
+    "/api/v1/payments/links/{code}": {
+      "get": {
+        "tags": ["payments"],
+        "summary": "Resolver link de cobro (público)",
+        "description": "Devuelve información del link de cobro sin autenticación. Retorna 404 si el link está expirado, inactivo o ha alcanzado el máximo de usos.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "example": "a1B2c3",
+            "description": "Código corto del link"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Info del link de cobro",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PaymentLinkInfo" } }
+            }
+          },
+          "404": {
+            "description": "Link inválido, expirado, inactivo o con máximo de usos alcanzado",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/payments/links/{id}": {
+      "delete": {
+        "tags": ["payments"],
+        "summary": "Desactivar link de cobro",
+        "description": "Desactiva un link. Solo el propietario puede desactivarlo.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" },
+            "description": "ID del link a desactivar"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Link desactivado",
+            "content": {
+              "application/json": {
+                "example": { "message": "Enlace desactivado." }
+              }
+            }
+          },
+          "401": { "description": "Token inválido o expirado" },
+          "404": {
+            "description": "Link no encontrado o no pertenece al usuario",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           }
         }
       }
@@ -298,8 +511,8 @@
     "/api/v1/topup/webpay": {
       "post": {
         "tags": ["topup"],
-        "summary": "Iniciar recarga con WebPay",
-        "description": "Crea transacción Transbank. Redirige al usuario a la página de pago de Transbank.",
+        "summary": "Iniciar recarga con Transbank WebPay",
+        "description": "Crea una transacción en Transbank Plus y devuelve URL de redirección. Guarda mapping `buyOrder → {userId, amount}` en Redis con TTL 1h para procesar el callback.",
         "security": [{ "bearerAuth": [] }],
         "requestBody": {
           "required": true,
@@ -309,7 +522,7 @@
                 "type": "object",
                 "required": ["amount"],
                 "properties": {
-                  "amount": { "type": "integer", "minimum": 1000, "maximum": 500000, "example": 10000 }
+                  "amount": { "type": "integer", "minimum": 1000, "maximum": 500000, "example": 10000, "description": "Monto en CLP" }
                 }
               }
             }
@@ -317,14 +530,45 @@
         },
         "responses": {
           "200": {
-            "description": "Redirección a Transbank",
+            "description": "URL de pago Transbank",
             "content": {
               "application/json": {
-                "example": { "redirectUrl": "https://webpay3g.transbank.cl/...", "token": "e9d555262db0f989...", "amount": 10000 }
+                "example": {
+                  "redirectUrl": "https://webpay3g.transbank.cl/webpayserver/initTransaction",
+                  "token": "e9d555262db0f989e9a97c1...",
+                  "amount": 10000
+                }
               }
             }
           },
-          "400": { "description": "Monto fuera del rango $1.000–$500.000" }
+          "400": {
+            "description": "Monto fuera del rango $1.000–$500.000",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": { "description": "Token inválido o expirado" }
+        }
+      }
+    },
+    "/api/v1/topup/webpay/callback": {
+      "post": {
+        "tags": ["topup"],
+        "summary": "Callback Transbank (uso interno)",
+        "description": "Transbank redirige aquí tras el pago. Confirma la transacción, acredita el wallet de forma idempotente (P2002 en campo `reference` previene doble crédito) y envía notificación WhatsApp.",
+        "security": [],
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token_ws": { "type": "string", "description": "Token de sesión Transbank" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "302": { "description": "Redirige a `/topup/success` o `/topup/error`" }
         }
       }
     },
@@ -332,7 +576,7 @@
       "post": {
         "tags": ["topup"],
         "summary": "Iniciar recarga con Khipu",
-        "description": "Crea cobro de transferencia bancaria. El usuario paga desde su banco.",
+        "description": "Crea un cobro de transferencia bancaria con Khipu. El usuario paga desde su banco online. Guarda mapping `paymentId → {userId, amount}` en Redis con TTL 1h.",
         "security": [{ "bearerAuth": [] }],
         "requestBody": {
           "required": true,
@@ -342,7 +586,7 @@
                 "type": "object",
                 "required": ["amount"],
                 "properties": {
-                  "amount": { "type": "integer", "minimum": 1000, "maximum": 500000, "example": 10000 }
+                  "amount": { "type": "integer", "minimum": 1000, "maximum": 500000, "example": 10000, "description": "Monto en CLP" }
                 }
               }
             }
@@ -353,10 +597,44 @@
             "description": "URL de pago Khipu",
             "content": {
               "application/json": {
-                "example": { "paymentUrl": "https://khipu.com/payment/...", "paymentId": "a1b2c3d4e5f6", "amount": 10000 }
+                "example": {
+                  "paymentUrl": "https://khipu.com/payment/info/a1b2c3d4e5f6",
+                  "paymentId": "a1b2c3d4e5f6",
+                  "amount": 10000
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Monto fuera del rango $1.000–$500.000",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": { "description": "Token inválido o expirado" }
+        }
+      }
+    },
+    "/api/v1/topup/khipu/notify": {
+      "post": {
+        "tags": ["topup"],
+        "summary": "Notificación Khipu (uso interno)",
+        "description": "Khipu llama este endpoint al completarse un pago. Responde 200 inmediatamente para evitar reintentos, luego verifica el estado real con Khipu API y acredita el wallet.",
+        "security": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "notification_token": { "type": "string", "description": "Token = payment_id de Khipu" },
+                  "api_version": { "type": "string", "example": "1.3" }
+                }
               }
             }
           }
+        },
+        "responses": {
+          "200": { "description": "Notificación recibida" },
+          "400": { "description": "Token inválido o versión API incorrecta" }
         }
       }
     },
@@ -364,55 +642,148 @@
       "get": {
         "tags": ["merchants"],
         "summary": "Dashboard del comercio",
-        "description": "Resumen de ventas, transacciones pendientes y saldo para liquidar.",
+        "description": "Resumen de ventas y transacciones. Requiere KYC nivel INTERMEDIATE o superior.",
         "security": [{ "bearerAuth": [] }],
         "responses": {
           "200": {
             "description": "Dashboard data",
             "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/MerchantDashboard" } }
+            }
+          },
+          "401": { "description": "Token inválido o expirado" },
+          "403": { "description": "KYC insuficiente (requiere INTERMEDIATE)" }
+        }
+      }
+    },
+    "/api/v1/merchants/transactions": {
+      "get": {
+        "tags": ["merchants"],
+        "summary": "Transacciones del comercio",
+        "description": "Lista paginada de transacciones recibidas. Requiere KYC INTERMEDIATE o superior.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "pageSize", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transacciones paginadas",
+            "content": {
               "application/json": {
                 "example": {
-                  "totalSales": 450000,
-                  "transactionCount": 23,
-                  "pendingSettlement": 125000,
-                  "period": "2026-02"
+                  "transactions": [],
+                  "total": 0,
+                  "page": 1,
+                  "pageSize": 20
                 }
               }
             }
+          },
+          "401": { "description": "Token inválido o expirado" },
+          "403": { "description": "KYC insuficiente" }
+        }
+      }
+    },
+    "/api/v1/merchants/settlement": {
+      "get": {
+        "tags": ["merchants"],
+        "summary": "Reporte de liquidación",
+        "description": "Genera reporte de ingresos para el período especificado. Por defecto devuelve el mes en curso. Requiere KYC INTERMEDIATE o superior.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "start",
+            "in": "query",
+            "schema": { "type": "string", "format": "date-time" },
+            "example": "2026-02-01T00:00:00Z",
+            "description": "Inicio del período (ISO 8601). Por defecto: primer día del mes actual"
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "schema": { "type": "string", "format": "date-time" },
+            "example": "2026-02-28T23:59:59Z",
+            "description": "Fin del período (ISO 8601). Por defecto: ahora"
           }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reporte de liquidación",
+            "content": {
+              "application/json": {
+                "example": {
+                  "merchantId": "uuid",
+                  "period": { "start": "2026-02-01T00:00:00Z", "end": "2026-02-28T23:59:59Z" },
+                  "totalRevenue": 450000,
+                  "totalFees": 4500,
+                  "netRevenue": 445500,
+                  "transactionCount": 23
+                }
+              }
+            }
+          },
+          "400": { "description": "Fechas inválidas" },
+          "401": { "description": "Token inválido o expirado" },
+          "403": { "description": "KYC insuficiente" }
         }
       }
     },
     "/api/v1/webhook": {
+      "get": {
+        "tags": ["webhook"],
+        "summary": "Verificar webhook (Meta challenge)",
+        "description": "Meta llama este endpoint al configurar el webhook. Verifica el `hub.verify_token` y devuelve el challenge.",
+        "security": [],
+        "parameters": [
+          { "name": "hub.mode", "in": "query", "required": true, "schema": { "type": "string", "enum": ["subscribe"] } },
+          { "name": "hub.verify_token", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "hub.challenge", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Challenge devuelto como texto plano" },
+          "403": { "description": "Token de verificación incorrecto" }
+        }
+      },
       "post": {
         "tags": ["webhook"],
         "summary": "Recibir mensajes de WhatsApp",
-        "description": "Endpoint para WhatsApp Cloud API. Deduplicación por message ID en Redis. Procesa mensajes y responde vía BotService.",
+        "description": "WhatsApp Cloud API envía mensajes aquí. Valida HMAC-SHA256 (`X-Hub-Signature-256`), aplica deduplicación por `message.id` en Redis (TTL 5 min), y despacha al BotService. Siempre responde 200 de forma inmediata.",
         "security": [],
+        "parameters": [
+          {
+            "name": "X-Hub-Signature-256",
+            "in": "header",
+            "schema": { "type": "string" },
+            "description": "Firma HMAC-SHA256 del cuerpo. Requerida si `WHATSAPP_APP_SECRET` está configurado."
+          }
+        ],
         "requestBody": {
-          "description": "WhatsApp webhook payload",
+          "description": "WhatsApp Cloud API webhook payload",
           "content": {
             "application/json": {
-              "schema": { "type": "object" }
+              "schema": { "type": "object" },
+              "example": {
+                "object": "whatsapp_business_account",
+                "entry": [{
+                  "changes": [{
+                    "value": {
+                      "messages": [{
+                        "from": "+56912345678",
+                        "id": "wamid.xxx",
+                        "type": "text",
+                        "text": { "body": "/saldo" }
+                      }]
+                    }
+                  }]
+                }]
+              }
             }
           }
         },
         "responses": {
-          "200": { "description": "Procesado OK" }
-        }
-      },
-      "get": {
-        "tags": ["webhook"],
-        "summary": "Verificar webhook (Meta challenge)",
-        "security": [],
-        "parameters": [
-          { "name": "hub.mode", "in": "query", "schema": { "type": "string" } },
-          { "name": "hub.verify_token", "in": "query", "schema": { "type": "string" } },
-          { "name": "hub.challenge", "in": "query", "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": { "description": "Challenge devuelto" },
-          "403": { "description": "Token incorrecto" }
+          "200": { "description": "Recibido. El mensaje se procesa de forma asíncrona." },
+          "401": { "description": "Firma HMAC inválida" }
         }
       }
     }

@@ -33,7 +33,8 @@ type State =
   | 'TOPUP_CUSTOM_AMOUNT'
   | 'CHANGE_PIN_CURRENT'
   | 'CHANGE_PIN_NEW'
-  | 'CHANGE_PIN_CONFIRM';
+  | 'CHANGE_PIN_CONFIRM'
+  | 'KYC_CONFIRM';
 
 // ─── Bot Service (Stateful Conversation Engine) ─────────
 
@@ -224,6 +225,7 @@ export class BotService {
     if (normalized.startsWith('/soporte')) return 'support';
     if (normalized.startsWith('/perfil')) return 'profile';
     if (normalized.startsWith('/cambiarpin')) return 'changepin';
+    if (normalized.startsWith('/kyc') || normalized === 'verificar') return 'kyc';
 
     return null;
   }
@@ -258,6 +260,8 @@ export class BotService {
         return this.showProfile(from, userId);
       case 'changepin':
         return this.startChangePinFlow(from, userId);
+      case 'kyc':
+        return this.startKycUpgradeFlow(from, userId);
     }
   }
 
@@ -651,6 +655,112 @@ export class BotService {
   }
 
   // ═══════════════════════════════════════════════════════
+  //  KYC UPGRADE FLOW
+  // ═══════════════════════════════════════════════════════
+
+  private async startKycUpgradeFlow(from: string, userId: string): Promise<void> {
+    const user = await this.users.getUserById(userId);
+    if (!user) return;
+
+    const limits: Record<string, { tx: string; monthly: string }> = {
+      BASIC: { tx: '$50.000', monthly: '$200.000/mes' },
+      INTERMEDIATE: { tx: '$500.000', monthly: '$2.000.000/mes' },
+      FULL: { tx: '$2.000.000', monthly: 'Sin límite' },
+    };
+
+    if (user.kycLevel === 'FULL') {
+      await this.wa.sendTextMessage(
+        from,
+        'Ya tienes el nivel máximo de verificación (FULL). No hay nada que actualizar.',
+      );
+      return;
+    }
+
+    if (user.kycLevel === 'INTERMEDIATE') {
+      await this.wa.sendTextMessage(
+        from,
+        [
+          'Tu nivel actual es INTERMEDIATE.',
+          divider(),
+          `Límite por transacción: ${limits.INTERMEDIATE.tx}`,
+          `Límite mensual: ${limits.INTERMEDIATE.monthly}`,
+          divider(),
+          'Para escalar a FULL (sin límite mensual) contáctanos en soporte@whatpay.cl',
+        ].join('\n'),
+      );
+      return;
+    }
+
+    // BASIC → INTERMEDIATE
+    await setSession(from, {
+      userId,
+      waId: from,
+      state: 'KYC_CONFIRM',
+      data: {},
+      lastActivity: Date.now(),
+    });
+
+    await this.wa.sendButtonMessage(
+      from,
+      [
+        'Actualizar a nivel INTERMEDIATE',
+        divider(),
+        'Límites actuales (BASIC):',
+        `  Por transacción: ${limits.BASIC.tx}`,
+        `  Mensual: ${limits.BASIC.monthly}`,
+        '',
+        'Con INTERMEDIATE:',
+        `  Por transacción: ${limits.INTERMEDIATE.tx}`,
+        `  Mensual: ${limits.INTERMEDIATE.monthly}`,
+        divider(),
+        'Al confirmar declaras que eres mayor de 18 años y que usas WhatPay para fines lícitos.',
+      ].join('\n'),
+      [
+        { id: 'kyc_confirm', title: 'Confirmar' },
+        { id: 'kyc_cancel', title: 'Cancelar' },
+      ],
+    );
+  }
+
+  private async handleKycFlow(
+    from: string,
+    userId: string,
+    text: string,
+    _session: ConversationSession,
+  ): Promise<void> {
+    const normalized = text.trim().toLowerCase();
+
+    if (normalized === 'kyc_cancel' || normalized === 'cancelar') {
+      await deleteSession(from);
+      await this.wa.sendTextMessage(from, 'Verificación cancelada.');
+      return;
+    }
+
+    if (normalized === 'kyc_confirm' || normalized === 'confirmar') {
+      await this.users.updateKycLevel(userId, 'INTERMEDIATE');
+      await deleteSession(from);
+      await this.wa.sendTextMessage(
+        from,
+        [
+          '✅ Cuenta verificada — nivel INTERMEDIATE',
+          divider(),
+          'Nuevos límites activados:',
+          '  Por transacción: $500.000',
+          '  Mensual: $2.000.000',
+          divider(),
+          'Puedes seguir usando /pagar, /cobrar y acceder al dashboard de comercio.',
+        ].join('\n'),
+      );
+      return;
+    }
+
+    await this.wa.sendTextMessage(
+      from,
+      'Responde "Confirmar" para verificar o "Cancelar" para volver.',
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════
   //  STATEFUL ROUTER
   // ═══════════════════════════════════════════════════════
 
@@ -671,6 +781,9 @@ export class BotService {
     if (state.startsWith('CHANGE_PIN_')) {
       return this.handleChangePinFlow(from, userId, text, session);
     }
+    if (state.startsWith('KYC_')) {
+      return this.handleKycFlow(from, userId, text, session);
+    }
 
     // Unknown state — reset
     await deleteSession(from);
@@ -689,6 +802,7 @@ export class BotService {
         '/recargar - Agregar fondos',
         '/historial - Últimas transacciones',
         '/perfil - Tu cuenta',
+        '/kyc - Subir límites de pago',
         '/cambiarpin - Cambiar PIN',
         '/soporte - Ayuda humana',
       ].join('\n'),
