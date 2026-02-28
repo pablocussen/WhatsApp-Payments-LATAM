@@ -49,7 +49,8 @@ router.post(
 
     const pinResult = await users.verifyUserPin(waId, pin);
     if (!pinResult.success) {
-      return res.status(401).json({ error: pinResult.message });
+      const status = pinResult.isLocked ? 423 : 401; // 423 Locked
+      return res.status(status).json({ error: pinResult.message, locked: pinResult.isLocked });
     }
 
     const token = generateToken({

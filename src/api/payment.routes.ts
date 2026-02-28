@@ -22,7 +22,7 @@ const createLinkSchema = z.object({
 
 const processPaymentSchema = z.object({
   receiverId: z.string().uuid(),
-  amount: z.number().min(100),
+  amount: z.number().int().min(100).max(2_000_000), // FULL KYC max per-tx
   paymentMethod: z.enum(['WALLET', 'WEBPAY_CREDIT', 'WEBPAY_DEBIT', 'KHIPU']),
   description: z.string().max(500).optional(),
   paymentLinkId: z.string().uuid().optional(),
