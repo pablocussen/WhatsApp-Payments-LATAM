@@ -3,7 +3,7 @@
 > Plataforma de pagos peer-to-peer integrada nativamente con WhatsApp.
 > Backend en Node.js + TypeScript, desplegado en GCP Cloud Run (Santiago).
 
-[![Tests](https://img.shields.io/badge/tests-361%2F361%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-385%2F385%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-100%25%20branches-brightgreen)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
 [![Cloud Build](https://img.shields.io/badge/CI%2FCD-Cloud%20Build-4285F4?logo=googlecloud&logoColor=white)](https://console.cloud.google.com/cloud-build/builds?project=whatpay-cl)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -88,7 +88,7 @@ WhatPay permite enviar y recibir pagos **directamente desde una conversación de
 | **IaC** | Terraform (main.tf — VPC, Cloud Run, SQL, Redis, KMS, Pub/Sub) |
 | **CI/CD** | GitHub Actions + Google Cloud Build |
 | **Seguridad** | JWT · bcrypt cost 12 · AES-256-GCM · WebAuthn · Rate limiting Redis |
-| **Testing** | Jest 29 · ts-jest · v8 coverage (361 tests, 21 suites, 100% branches) |
+| **Testing** | Jest 29 · ts-jest · v8 coverage (385 tests, 23 suites, 100% branches) |
 
 ---
 
@@ -174,8 +174,8 @@ npm run db:push
 npm run dev
 
 # Tests
-npm test                # 351/351
-npm run test:coverage   # con reporte de cobertura (99% branches)
+npm test                # 385/385
+npm run test:coverage   # con reporte de cobertura (100% branches)
 ```
 
 ### Variables de entorno requeridas
@@ -196,7 +196,7 @@ El resto tiene defaults seguros para desarrollo. Ver `.env.example` para todas l
 | `npm run dev` | Servidor desarrollo (hot reload con tsx) |
 | `npm run build` | Compilar TypeScript → dist/ |
 | `npm start` | Ejecutar build de producción |
-| `npm test` | 361 tests (21 suites — unit + integración) |
+| `npm test` | 385 tests (23 suites — unit + integración) |
 | `npm run test:coverage` | Tests + reporte de cobertura (v8, 100% branches) |
 | `npm run lint` | ESLint en src/ |
 | `npm run docker:up` | Levantar PostgreSQL + Redis locales |
@@ -241,7 +241,7 @@ WhatsApp-Payments-LATAM/
 │       ├── database.ts         # Prisma + Redis + sessions
 │       └── logger.ts           # Structured logging
 ├── tests/
-│   ├── unit/                   # 19 suites · 351 tests (todos los servicios)
+│   ├── unit/                   # 22 suites · 385 tests (todos los servicios + middlewares)
 │   └── integration/            # api.test.ts (supertest, endpoints reales)
 ├── docs/
 │   ├── openapi.json            # OpenAPI 3.1 spec (servido en /api/docs)
@@ -269,7 +269,7 @@ WhatsApp-Payments-LATAM/
 
 ## Estado
 
-- **Tests**: 361/361 pasando (21 suites — todos los servicios, **100% branch coverage**)
+- **Tests**: 385/385 pasando (23 suites — todos los servicios + middlewares, **100% branch coverage**)
 - **TypeScript**: 0 errores (strict mode)
 - **Seguridad**: PIN como bcrypt hash, RUT como HMAC-SHA256, SELECT FOR UPDATE anti double-spend, idempotencia en recargas, bloqueo de cuenta tras 3 intentos
 - **API Docs**: Swagger UI en `/api/docs` con OpenAPI 3.1 spec completo
