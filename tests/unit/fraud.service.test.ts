@@ -111,6 +111,14 @@ describe('FraudService.checkTransaction', () => {
       expect(result).toBeDefined();
       expect(result.action).not.toBeUndefined();
     });
+
+    it('handles null Redis response (non-existent key → count = 0)', async () => {
+      mockRedis.get.mockResolvedValue(null); // Redis returns null for non-existent key
+      const result = await svc.checkTransaction(BASE_INPUT);
+      // txCount = parseInt(null || '0') = 0 → no velocity score
+      expect(result.action).toBe('approve');
+      expect(result.reasons.some((r) => r.includes('frecuencia'))).toBe(false);
+    });
   });
 
   // ─── Amount anomaly rule ─────────────────────────────────
@@ -148,6 +156,42 @@ describe('FraudService.checkTransaction', () => {
       // 3x avg = 30,000; send 31,000
       const result = await svc.checkTransaction({ ...BASE_INPUT, amount: 31_000 });
       expect(result.score).toBeGreaterThanOrEqual(0.3);
+    });
+
+    it('adds 0.25 when amount > 2x max (but ≤ 3x avg)', async () => {
+      // avg=10000 max=12000: 3x avg=30000, 2x max=24000
+      // amount=25000: not > 3x avg, but > 2x max → returns 0.25
+      mockPrisma.transaction.aggregate.mockResolvedValue({
+        _avg: { amount: 10_000 },
+        _max: { amount: 12_000 },
+        _count: 10,
+      });
+      const result = await svc.checkTransaction({ ...BASE_INPUT, amount: 25_000 });
+      expect(result.score).toBeGreaterThanOrEqual(0.25);
+    });
+
+    it('adds 0.1 when amount > 2x avg (but ≤ 2x max)', async () => {
+      // avg=10000 max=15000: 3x avg=30000, 2x max=30000, 2x avg=20000
+      // amount=22000: not > 3x avg, not > 2x max, but > 2x avg → returns 0.1
+      mockPrisma.transaction.aggregate.mockResolvedValue({
+        _avg: { amount: 10_000 },
+        _max: { amount: 15_000 },
+        _count: 10,
+      });
+      const result = await svc.checkTransaction({ ...BASE_INPUT, amount: 22_000 });
+      expect(result.score).toBeGreaterThanOrEqual(0.1);
+    });
+
+    it('handles null avg/max with sufficient history (covers ?? 0 branches)', async () => {
+      // _count >= 3 but null avg/max (edge case: all amounts are null in DB)
+      // avgAmount = 0, maxAmount = 0 → any positive amount > 0*3=0 → returns 0.3
+      mockPrisma.transaction.aggregate.mockResolvedValue({
+        _avg: { amount: null },
+        _max: { amount: null },
+        _count: 5,
+      });
+      const result = await svc.checkTransaction({ ...BASE_INPUT, amount: 10_000 });
+      expect(result.score).toBeGreaterThan(0);
     });
   });
 

@@ -1,4 +1,5 @@
-import { isSecurePin } from '../../src/middleware/auth.middleware';
+import { isSecurePin, verifyPin } from '../../src/middleware/auth.middleware';
+import { hashPin } from '../../src/utils/crypto';
 
 describe('PIN Security Validation', () => {
   describe('rejects insecure PINs', () => {
@@ -59,5 +60,41 @@ describe('PIN Security Validation', () => {
       expect(isSecurePin('123789')).toBe(true);
       expect(isSecurePin('456123')).toBe(true);
     });
+  });
+});
+
+describe('verifyPin', () => {
+  let validHash: string;
+
+  beforeAll(async () => {
+    validHash = await hashPin('483921');
+  });
+
+  it('returns success=true for correct PIN', async () => {
+    const result = await verifyPin('483921', validHash, 0, null);
+    expect(result.success).toBe(true);
+    expect(result.shouldLock).toBe(false);
+  });
+
+  it('returns shouldLock=false and remaining attempts message for wrong PIN (not at limit)', async () => {
+    const result = await verifyPin('000000', validHash, 0, null); // 0 previous attempts
+    expect(result.success).toBe(false);
+    expect(result.shouldLock).toBe(false);
+    expect(result.message).toMatch(/2 intentos/);
+  });
+
+  it('returns shouldLock=true when attempts reach limit (3rd failure)', async () => {
+    const result = await verifyPin('000000', validHash, 2, null); // 2 previous → 3rd failure
+    expect(result.success).toBe(false);
+    expect(result.shouldLock).toBe(true);
+    expect(result.message).toMatch(/bloqueada/i);
+  });
+
+  it('returns locked message when lockedUntil is in the future', async () => {
+    const future = new Date(Date.now() + 10 * 60 * 1000);
+    const result = await verifyPin('483921', validHash, 0, future);
+    expect(result.success).toBe(false);
+    expect(result.shouldLock).toBe(false);
+    expect(result.message).toMatch(/minutos/i);
   });
 });

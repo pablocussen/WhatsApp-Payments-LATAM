@@ -431,3 +431,13 @@ describe('UserService.getUserCount', () => {
     expect(mockPrisma.user.count).toHaveBeenCalledWith({ where: { isActive: true } });
   });
 });
+
+// ─── constructor key fallback ─────────────────────────────
+
+describe('UserService constructor', () => {
+  it('uses env fallback when no encryption key argument is provided', () => {
+    // Covers the `encryptionKeyHex || process.env.ENCRYPTION_KEY_HEX || '0'.repeat(64)` branch
+    const svcNoKey = new UserService();
+    expect(svcNoKey).toBeDefined();
+  });
+});
