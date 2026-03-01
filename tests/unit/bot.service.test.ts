@@ -4,7 +4,11 @@
  */
 
 jest.mock('../../src/config/environment', () => ({
-  env: { NODE_ENV: 'test', ENCRYPTION_KEY_HEX: '0'.repeat(64) },
+  env: {
+    NODE_ENV: 'test',
+    ENCRYPTION_KEY_HEX: '0'.repeat(64),
+    APP_BASE_URL: 'http://localhost:3000',
+  },
 }));
 
 // ─── Database session mocks ───────────────────────────────
@@ -12,11 +16,13 @@ jest.mock('../../src/config/environment', () => ({
 const mockGetSession = jest.fn();
 const mockSetSession = jest.fn();
 const mockDeleteSession = jest.fn();
+const mockRedisSet = jest.fn();
 
 jest.mock('../../src/config/database', () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
   setSession: (...args: unknown[]) => mockSetSession(...args),
   deleteSession: (...args: unknown[]) => mockDeleteSession(...args),
+  getRedis: jest.fn().mockReturnValue({ set: (...args: unknown[]) => mockRedisSet(...args) }),
   prisma: {},
 }));
 
@@ -24,6 +30,7 @@ jest.mock('../../src/config/database', () => ({
 
 const mockHashPin = jest.fn();
 const mockVerifyPinHash = jest.fn();
+const mockGenerateReference = jest.fn().mockReturnValue('#WP-2026-AABBCCDD');
 
 jest.mock('../../src/utils/crypto', () => {
   const actual = jest.requireActual('../../src/utils/crypto');
@@ -31,6 +38,7 @@ jest.mock('../../src/utils/crypto', () => {
     ...actual,
     hashPin: (...args: unknown[]) => mockHashPin(...args),
     verifyPinHash: (...args: unknown[]) => mockVerifyPinHash(...args),
+    generateReference: (...args: unknown[]) => mockGenerateReference(...args),
   };
 });
 
@@ -83,6 +91,14 @@ jest.mock('../../src/services/transaction.service', () => ({
 
 jest.mock('../../src/services/payment-link.service', () => ({
   PaymentLinkService: jest.fn().mockImplementation(() => mockPaymentLinks),
+}));
+
+const mockKhipu = {
+  createPayment: jest.fn(),
+};
+
+jest.mock('../../src/services/khipu.service', () => ({
+  KhipuService: jest.fn().mockImplementation(() => mockKhipu),
 }));
 
 import { BotService } from '../../src/services/bot.service';
@@ -1129,5 +1145,168 @@ describe('BotService', () => {
         expect.objectContaining({ state: 'PAY_ENTER_PHONE' }),
       );
     });
+  });
+});
+
+// ─── TOPUP flow ───────────────────────────────────────────
+
+describe('BotService — /recargar → TOPUP flow', () => {
+  let bot: BotService;
+
+  beforeEach(() => {
+    bot = new BotService();
+    jest.clearAllMocks();
+    mockWa.sendTextMessage.mockResolvedValue(undefined);
+    mockWa.sendButtonMessage.mockResolvedValue(undefined);
+    mockSetSession.mockResolvedValue(undefined);
+    mockDeleteSession.mockResolvedValue(undefined);
+    mockRedisSet.mockResolvedValue('OK');
+    mockKhipu.createPayment.mockResolvedValue({
+      paymentId: 'khipu-pay-id-001',
+      paymentUrl: 'https://khipu.com/payment/khipu-pay-id-001',
+      simplifiedTransferUrl: 'https://khipu.com/simplified/khipu-pay-id-001',
+      appUrl: 'khipu://pay/khipu-pay-id-001',
+    });
+  });
+
+  it('/recargar command creates TOPUP_SELECT_AMOUNT session and sends amount buttons', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(null);
+
+    await bot.handleMessage(FROM, '/recargar');
+
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({ state: 'TOPUP_SELECT_AMOUNT', userId: USER_ID }),
+    );
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('recargar'),
+      expect.arrayContaining([expect.objectContaining({ id: 'topup_10000' })]),
+    );
+  });
+
+  it('TOPUP_SELECT_AMOUNT: topup_10000 button → calls Khipu, stores Redis, sends payment URL', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(mkSession('TOPUP_SELECT_AMOUNT'));
+
+    await bot.handleMessage(FROM, 'topup_10000', 'topup_10000');
+
+    expect(mockKhipu.createPayment).toHaveBeenCalledWith(
+      expect.stringContaining('$10.000'),
+      10000,
+      expect.stringContaining('/khipu/notify'),
+      expect.stringContaining('/topup/success'),
+      '#WP-2026-AABBCCDD',
+    );
+    expect(mockRedisSet).toHaveBeenCalledWith(
+      'topup:khipu:khipu-pay-id-001',
+      expect.stringContaining('"userId":"user-uuid-001"'),
+      { EX: 3600 },
+    );
+    expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('https://khipu.com/payment/khipu-pay-id-001'),
+    );
+  });
+
+  it('TOPUP_SELECT_AMOUNT: topup_20000 button → amount 20000 passed to Khipu', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(mkSession('TOPUP_SELECT_AMOUNT'));
+
+    await bot.handleMessage(FROM, 'topup_20000', 'topup_20000');
+
+    expect(mockKhipu.createPayment).toHaveBeenCalledWith(
+      expect.any(String),
+      20000,
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+    );
+  });
+
+  it('TOPUP_SELECT_AMOUNT: topup_50000 button → amount 50000 passed to Khipu', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(mkSession('TOPUP_SELECT_AMOUNT'));
+
+    await bot.handleMessage(FROM, 'topup_50000', 'topup_50000');
+
+    expect(mockKhipu.createPayment).toHaveBeenCalledWith(
+      expect.any(String),
+      50000,
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+    );
+  });
+
+  it('TOPUP_SELECT_AMOUNT: custom text amount 25000 → calls Khipu with 25000', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(mkSession('TOPUP_SELECT_AMOUNT'));
+
+    await bot.handleMessage(FROM, '25000');
+
+    expect(mockKhipu.createPayment).toHaveBeenCalledWith(
+      expect.any(String),
+      25000,
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+    );
+  });
+
+  it('TOPUP_SELECT_AMOUNT: invalid text "abc" → error message, session not deleted', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(mkSession('TOPUP_SELECT_AMOUNT'));
+
+    await bot.handleMessage(FROM, 'abc');
+
+    expect(mockKhipu.createPayment).not.toHaveBeenCalled();
+    expect(mockDeleteSession).not.toHaveBeenCalled();
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Monto inválido'),
+    );
+  });
+
+  it('TOPUP_SELECT_AMOUNT: amount 500 (below $1.000) → validation error', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(mkSession('TOPUP_SELECT_AMOUNT'));
+
+    await bot.handleMessage(FROM, '500');
+
+    expect(mockKhipu.createPayment).not.toHaveBeenCalled();
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Monto inválido'),
+    );
+  });
+
+  it('TOPUP_SELECT_AMOUNT: amount 600000 (above $500.000) → validation error', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(mkSession('TOPUP_SELECT_AMOUNT'));
+
+    await bot.handleMessage(FROM, '600000');
+
+    expect(mockKhipu.createPayment).not.toHaveBeenCalled();
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Monto inválido'),
+    );
+  });
+
+  it('TOPUP_SELECT_AMOUNT: Khipu throws → sends error, deletes session, rethrows', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(mkSession('TOPUP_SELECT_AMOUNT'));
+    mockKhipu.createPayment.mockRejectedValue(new Error('Khipu API timeout'));
+
+    await bot.handleMessage(FROM, 'topup_10000', 'topup_10000');
+
+    expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Error al generar el link'),
+    );
   });
 });

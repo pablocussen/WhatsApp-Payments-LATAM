@@ -3,11 +3,19 @@ import { UserService } from './user.service';
 import { WalletService } from './wallet.service';
 import { TransactionService } from './transaction.service';
 import { PaymentLinkService } from './payment-link.service';
-import { getSession, setSession, deleteSession, ConversationSession } from '../config/database';
+import { KhipuService } from './khipu.service';
+import {
+  getSession,
+  setSession,
+  deleteSession,
+  getRedis,
+  ConversationSession,
+} from '../config/database';
 import { createLogger } from '../config/logger';
 import { formatCLP, formatPhone, divider, receipt } from '../utils/format';
-import { validateRut, formatRut, hashPin, verifyPinHash } from '../utils/crypto';
+import { validateRut, formatRut, hashPin, verifyPinHash, generateReference } from '../utils/crypto';
 import { isSecurePin } from '../middleware/auth.middleware';
+import { env } from '../config/environment';
 
 const log = createLogger('bot-service');
 
@@ -44,6 +52,7 @@ export class BotService {
   private wallets = new WalletService();
   private transactions = new TransactionService();
   private paymentLinks = new PaymentLinkService();
+  private khipu = new KhipuService();
 
   async handleMessage(from: string, text: string, buttonId?: string): Promise<void> {
     try {
@@ -244,7 +253,7 @@ export class BotService {
       case 'balance':
         return this.showBalance(from, userId);
       case 'topup':
-        return this.startTopUpFlow(from);
+        return this.startTopUpFlow(from, userId);
       case 'history':
         return this.showHistory(from, userId);
       case 'help': {
@@ -588,12 +597,84 @@ export class BotService {
     );
   }
 
-  private async startTopUpFlow(from: string): Promise<void> {
-    await this.wa.sendButtonMessage(from, '¿Cuánto quieres recargar?', [
-      { id: 'topup_10000', title: '$10.000' },
-      { id: 'topup_20000', title: '$20.000' },
-      { id: 'topup_50000', title: '$50.000' },
-    ]);
+  private async startTopUpFlow(from: string, userId: string): Promise<void> {
+    await setSession(from, {
+      userId,
+      waId: from,
+      state: 'TOPUP_SELECT_AMOUNT',
+      data: {},
+      lastActivity: Date.now(),
+    });
+    await this.wa.sendButtonMessage(
+      from,
+      '¿Cuánto quieres recargar?\n(o escribe otro monto entre $1.000 y $500.000)',
+      [
+        { id: 'topup_10000', title: '$10.000' },
+        { id: 'topup_20000', title: '$20.000' },
+        { id: 'topup_50000', title: '$50.000' },
+      ],
+    );
+  }
+
+  private async handleTopUpFlow(
+    from: string,
+    text: string,
+    session: ConversationSession,
+  ): Promise<void> {
+    // Parse preset button click (topup_10000) or free-text custom amount
+    const presetMatch = text.match(/^topup_(\d+)$/);
+    const amount = presetMatch
+      ? parseInt(presetMatch[1], 10)
+      : parseInt(text.replace(/[$.]/g, ''), 10);
+
+    if (isNaN(amount) || amount < 1000 || amount > 500_000) {
+      await this.wa.sendTextMessage(
+        from,
+        'Monto inválido. Escribe un valor entre $1.000 y $500.000 CLP:',
+      );
+      return;
+    }
+
+    try {
+      const reference = generateReference();
+      const notifyUrl = `${env.APP_BASE_URL}/api/v1/topup/khipu/notify`;
+      const returnUrl = `${env.APP_BASE_URL}/topup/success`;
+
+      const payment = await this.khipu.createPayment(
+        `Recarga WhatPay ${formatCLP(amount)}`,
+        amount,
+        notifyUrl,
+        returnUrl,
+        reference,
+      );
+
+      // Store mapping so Khipu callback can credit the wallet
+      const redis = getRedis();
+      await redis.set(
+        `topup:khipu:${payment.paymentId}`,
+        JSON.stringify({ userId: session.userId, waId: from, amount }),
+        { EX: 3600 },
+      );
+
+      await deleteSession(from);
+
+      await this.wa.sendTextMessage(
+        from,
+        [
+          `💳 Recarga de ${formatCLP(amount)}`,
+          '',
+          'Haz clic para pagar por transferencia bancaria:',
+          payment.paymentUrl,
+          '',
+          '⏰ El link vence en 1 hora.',
+          'Una vez pagado, te avisamos por aquí.',
+        ].join('\n'),
+      );
+    } catch (err) {
+      await deleteSession(from);
+      await this.wa.sendTextMessage(from, 'Error al generar el link de pago. Intenta de nuevo.');
+      throw err;
+    }
   }
 
   private async startChangePinFlow(from: string, userId: string): Promise<void> {
@@ -777,6 +858,9 @@ export class BotService {
     }
     if (state.startsWith('CHARGE_')) {
       return this.handleChargeFlow(from, userId, text, session);
+    }
+    if (state.startsWith('TOPUP_')) {
+      return this.handleTopUpFlow(from, text, session);
     }
     if (state.startsWith('CHANGE_PIN_')) {
       return this.handleChangePinFlow(from, userId, text, session);

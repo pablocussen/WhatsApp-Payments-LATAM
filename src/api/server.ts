@@ -18,6 +18,11 @@ import topupRoutes from './topup.routes';
 const log = createLogger('server');
 const app = express();
 
+// Trust Google Cloud Run / load balancer proxies so req.ip reflects the real
+// client IP address (from X-Forwarded-For) rather than the proxy's IP.
+// Required for correct per-IP rate limiting in production.
+app.set('trust proxy', 1);
+
 // ─── Security Middleware ────────────────────────────────
 
 app.use(requestId);
@@ -178,7 +183,7 @@ async function start() {
     log.info('Redis connected');
 
     // Start HTTP server
-    app.listen(env.PORT, () => {
+    const server = app.listen(env.PORT, () => {
       log.info(`WhatPay API running`, {
         port: env.PORT,
         env: env.NODE_ENV,
@@ -188,6 +193,35 @@ async function start() {
         'Routes loaded: /health, /api/docs, /api/v1/webhook, /api/v1/users, /api/v1/payments, /api/v1/merchants, /c/:code',
       );
     });
+
+    // ─── Graceful Shutdown ───────────────────────────────
+    // Cloud Run sends SIGTERM before terminating the container.
+    // We stop accepting new connections, wait for in-flight requests,
+    // then disconnect from DB and Redis cleanly.
+    const shutdown = (signal: string) => {
+      log.info(`Received ${signal} — shutting down gracefully`);
+      server.close(async () => {
+        try {
+          await prisma.$disconnect();
+          log.info('Database disconnected');
+          const redis = getRedis();
+          await redis.quit();
+          log.info('Redis disconnected');
+        } catch (err) {
+          log.warn('Error during shutdown cleanup', { error: (err as Error).message });
+        }
+        log.info('Shutdown complete');
+        process.exit(0);
+      });
+      // Force exit if graceful shutdown takes longer than 9s (Cloud Run limit is 10s)
+      setTimeout(() => {
+        log.error('Graceful shutdown timed out — forcing exit');
+        process.exit(1);
+      }, 9_000).unref();
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
   } catch (err) {
     log.error('Failed to start server', { error: (err as Error).message });
     process.exit(1);
