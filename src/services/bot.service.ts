@@ -580,11 +580,15 @@ export class BotService {
 
     const balance = await this.wallets.getBalance(userId);
     const stats = await this.transactions.getTransactionStats(userId);
-    const limits: Record<string, string> = {
-      BASIC: '$200.000/mes',
-      INTERMEDIATE: '$2.000.000/mes',
-      FULL: 'Sin límite',
+
+    const monthlyLimits: Record<string, number> = {
+      BASIC: 200_000,
+      INTERMEDIATE: 2_000_000,
+      FULL: 50_000_000,
     };
+    const monthlyLimit = monthlyLimits[user.kycLevel] ?? monthlyLimits.BASIC;
+    const monthlyRemaining = Math.max(0, monthlyLimit - stats.monthlySent);
+    const limitLabel = user.kycLevel === 'FULL' ? 'Sin límite' : formatCLP(monthlyLimit);
 
     await this.wa.sendTextMessage(
       from,
@@ -593,7 +597,9 @@ export class BotService {
         divider(),
         `Nombre: ${user.name || 'Sin nombre'}`,
         `Nivel: ${user.kycLevel}`,
-        `Límite: ${limits[user.kycLevel] || limits.BASIC}`,
+        `Límite mensual: ${limitLabel}`,
+        `Usado este mes: ${formatCLP(stats.monthlySent)}`,
+        `Disponible mes: ${user.kycLevel === 'FULL' ? 'Sin límite' : formatCLP(monthlyRemaining)}`,
         `Saldo: ${balance.formatted}`,
         `Enviado total: ${formatCLP(stats.totalSent)}`,
         `Recibido total: ${formatCLP(stats.totalReceived)}`,

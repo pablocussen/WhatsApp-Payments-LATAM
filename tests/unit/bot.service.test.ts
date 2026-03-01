@@ -810,6 +810,7 @@ describe('BotService', () => {
         totalSent: 10_000,
         totalReceived: 5_000,
         txCount: 3,
+        monthlySent: 5_000,
       });
 
       await bot.handleMessage(FROM, '/perfil');
@@ -1066,6 +1067,7 @@ describe('BotService', () => {
         totalSent: 0,
         totalReceived: 0,
         txCount: 0,
+        monthlySent: 0,
       });
       await bot.handleMessage(FROM, '/perfil');
       expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
@@ -1089,6 +1091,7 @@ describe('BotService', () => {
         totalSent: 0,
         totalReceived: 0,
         txCount: 0,
+        monthlySent: 0,
       });
       await bot.handleMessage(FROM, '/perfil');
       expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('200.000'));
@@ -1109,11 +1112,36 @@ describe('BotService', () => {
         totalSent: 0,
         totalReceived: 0,
         txCount: 0,
+        monthlySent: 0,
       });
       await bot.handleMessage(FROM, '/perfil');
       expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('Activada'),
+      );
+    });
+
+    it('/perfil command → FULL kycLevel shows "Sin límite" (covers FULL branch)', async () => {
+      mockUsers.getUserByWaId.mockResolvedValue(mkUser({ kycLevel: 'FULL' }));
+      mockUsers.getUserById.mockResolvedValue({
+        id: USER_ID,
+        name: 'Juan',
+        kycLevel: 'FULL',
+        biometricEnabled: false,
+        waId: FROM,
+        createdAt: new Date(),
+      });
+      mockWallets.getBalance.mockResolvedValue({ formatted: '$500.000 CLP', amount: 500_000 });
+      mockTransactions.getTransactionStats.mockResolvedValue({
+        totalSent: 100_000,
+        totalReceived: 50_000,
+        txCount: 5,
+        monthlySent: 80_000,
+      });
+      await bot.handleMessage(FROM, '/perfil');
+      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+        FROM,
+        expect.stringContaining('Sin límite'),
       );
     });
 

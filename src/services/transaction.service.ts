@@ -238,8 +238,13 @@ export class TransactionService {
     totalSent: number;
     totalReceived: number;
     txCount: number;
+    monthlySent: number;
   }> {
-    const [sent, received] = await Promise.all([
+    const firstOfMonth = new Date();
+    firstOfMonth.setDate(1);
+    firstOfMonth.setHours(0, 0, 0, 0);
+
+    const [sent, received, monthly] = await Promise.all([
       prisma.transaction.aggregate({
         where: { senderId: userId, status: 'COMPLETED' },
         _sum: { amount: true },
@@ -249,12 +254,17 @@ export class TransactionService {
         where: { receiverId: userId, status: 'COMPLETED' },
         _sum: { amount: true },
       }),
+      prisma.transaction.aggregate({
+        where: { senderId: userId, status: 'COMPLETED', createdAt: { gte: firstOfMonth } },
+        _sum: { amount: true },
+      }),
     ]);
 
     return {
       totalSent: Number(sent._sum.amount ?? 0),
       totalReceived: Number(received._sum.amount ?? 0),
       txCount: sent._count,
+      monthlySent: Number(monthly._sum.amount ?? 0),
     };
   }
 

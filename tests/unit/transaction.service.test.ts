@@ -446,21 +446,24 @@ describe('TransactionService.getTransactionStats', () => {
     jest.clearAllMocks();
   });
 
-  it('returns aggregated sent and received totals', async () => {
+  it('returns aggregated sent, received and monthly totals', async () => {
     mockPrisma.transaction.aggregate
       .mockResolvedValueOnce({ _sum: { amount: BigInt(50_000) }, _count: 3 })
-      .mockResolvedValueOnce({ _sum: { amount: BigInt(20_000) } });
+      .mockResolvedValueOnce({ _sum: { amount: BigInt(20_000) } })
+      .mockResolvedValueOnce({ _sum: { amount: BigInt(30_000) } });
 
     const result = await svc.getTransactionStats(SENDER_ID);
 
     expect(result.totalSent).toBe(50_000);
     expect(result.totalReceived).toBe(20_000);
     expect(result.txCount).toBe(3);
+    expect(result.monthlySent).toBe(30_000);
   });
 
   it('returns zeros when no transactions exist (null sums)', async () => {
     mockPrisma.transaction.aggregate
       .mockResolvedValueOnce({ _sum: { amount: null }, _count: 0 })
+      .mockResolvedValueOnce({ _sum: { amount: null } })
       .mockResolvedValueOnce({ _sum: { amount: null } });
 
     const result = await svc.getTransactionStats(SENDER_ID);
@@ -468,5 +471,6 @@ describe('TransactionService.getTransactionStats', () => {
     expect(result.totalSent).toBe(0);
     expect(result.totalReceived).toBe(0);
     expect(result.txCount).toBe(0);
+    expect(result.monthlySent).toBe(0);
   });
 });
