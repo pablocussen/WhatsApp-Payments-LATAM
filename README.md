@@ -3,10 +3,9 @@
 > Plataforma de pagos peer-to-peer integrada nativamente con WhatsApp.
 > Backend en Node.js + TypeScript, desplegado en GCP Cloud Run (Santiago).
 
-[![CI](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml/badge.svg)](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/pablocussen/WhatsApp-Payments-LATAM/graph/badge.svg)](https://codecov.io/gh/pablocussen/WhatsApp-Payments-LATAM)
-[![Tests](https://img.shields.io/badge/tests-351%2F351%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
+[![Tests](https://img.shields.io/badge/tests-351%2F351%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-99%25%20branches-brightgreen)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
+[![Cloud Build](https://img.shields.io/badge/CI%2FCD-Cloud%20Build-4285F4?logo=googlecloud&logoColor=white)](https://console.cloud.google.com/cloud-build/builds?project=whatpay-cl)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![GCP Cloud Run](https://img.shields.io/badge/deployed-GCP%20Cloud%20Run-4285F4?logo=googlecloud&logoColor=white)](https://whatpay-api-930472612593.southamerica-west1.run.app/health)
 [![API Docs](https://img.shields.io/badge/API-Swagger%20Docs-85EA2D?logo=swagger&logoColor=black)](https://whatpay-api-930472612593.southamerica-west1.run.app/api/docs)
