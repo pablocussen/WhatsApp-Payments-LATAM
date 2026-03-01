@@ -1,22 +1,25 @@
+substitutions:
+  _IMAGE_TAG: 'latest'  # overridden by trigger with $COMMIT_SHA
+
 steps:
-  # Install dependencies (skip husky hooks)
+  # ── 1. Install dependencies ───────────────────────────────
   - name: 'node:20'
     entrypoint: npm
     args: ['ci', '--prefer-offline']
     env:
       - 'HUSKY=0'
 
-  # TypeScript type check
+  # ── 2. TypeScript strict type check ──────────────────────
   - name: 'node:20'
     entrypoint: npx
     args: ['tsc', '--noEmit']
 
-  # Lint
+  # ── 3. ESLint ────────────────────────────────────────────
   - name: 'node:20'
     entrypoint: npm
     args: ['run', 'lint']
 
-  # Tests with coverage
+  # ── 4. Tests with coverage (351 tests, 99% branches) ─────
   - name: 'node:20'
     entrypoint: npm
     args: ['run', 'test:coverage']
@@ -26,23 +29,37 @@ steps:
       - 'JWT_SECRET=test-jwt-secret-at-least-32-characters-long'
       - 'REDIS_URL=redis://localhost:6379'
 
-  # Build Docker image
+  # ── 5. Docker build ───────────────────────────────────────
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/whatpay-api:$COMMIT_SHA', '.']
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/whatpay-api:$_IMAGE_TAG'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/whatpay-api:latest'
+      - '.'
 
-  # Push to Container Registry
+  # ── 6. Push image ─────────────────────────────────────────
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/whatpay-api:$COMMIT_SHA']
+    args: ['push', '--all-tags', 'gcr.io/$PROJECT_ID/whatpay-api']
 
-  # Tag as latest
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['tag', 'gcr.io/$PROJECT_ID/whatpay-api:$COMMIT_SHA', 'gcr.io/$PROJECT_ID/whatpay-api:latest']
+  # ── 7. Deploy to Cloud Run ────────────────────────────────
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'whatpay-api'
+      - '--image=gcr.io/$PROJECT_ID/whatpay-api:latest'
+      - '--region=southamerica-west1'
+      - '--platform=managed'
+      - '--quiet'
 
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/whatpay-api:latest']
+images:
+  - 'gcr.io/$PROJECT_ID/whatpay-api:latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
 
-timeout: '600s'
+timeout: '900s'
