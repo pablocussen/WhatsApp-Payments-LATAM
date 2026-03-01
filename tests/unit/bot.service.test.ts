@@ -1148,6 +1148,56 @@ describe('BotService', () => {
   });
 });
 
+// ─── /cancelar command ───────────────────────────────────
+
+describe('BotService — /cancelar command', () => {
+  let bot: BotService;
+
+  beforeEach(() => {
+    bot = new BotService();
+    jest.clearAllMocks();
+    mockWa.sendTextMessage.mockResolvedValue(undefined);
+    mockWa.sendButtonMessage.mockResolvedValue(undefined);
+    mockSetSession.mockResolvedValue(undefined);
+    mockDeleteSession.mockResolvedValue(undefined);
+  });
+
+  it('/cancelar in mid-flow → deletes session, sends confirmation, shows help', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_AMOUNT'));
+
+    await bot.handleMessage(FROM, '/cancelar');
+
+    expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, 'Operación cancelada.');
+    expect(mockWa.sendButtonMessage).toHaveBeenCalled();
+  });
+
+  it('"cancelar" text (no slash) → same cancel behaviour', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(null);
+
+    await bot.handleMessage(FROM, 'cancelar');
+
+    expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, 'Operación cancelada.');
+  });
+
+  it('/cancelar when user has null name → sendHelp with null name', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser({ name: null }));
+    mockGetSession.mockResolvedValue(mkSession('TOPUP_SELECT_AMOUNT'));
+
+    await bot.handleMessage(FROM, '/cancelar');
+
+    expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Hola!'),
+      expect.any(Array),
+    );
+  });
+});
+
 // ─── TOPUP flow ───────────────────────────────────────────
 
 describe('BotService — /recargar → TOPUP flow', () => {

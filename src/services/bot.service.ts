@@ -235,6 +235,7 @@ export class BotService {
     if (normalized.startsWith('/perfil')) return 'profile';
     if (normalized.startsWith('/cambiarpin')) return 'changepin';
     if (normalized.startsWith('/kyc') || normalized === 'verificar') return 'kyc';
+    if (normalized.startsWith('/cancelar') || normalized === 'cancelar') return 'cancel';
 
     return null;
   }
@@ -271,6 +272,12 @@ export class BotService {
         return this.startChangePinFlow(from, userId);
       case 'kyc':
         return this.startKycUpgradeFlow(from, userId);
+      case 'cancel': {
+        await deleteSession(from);
+        const user = await this.users.getUserByWaId(from);
+        await this.wa.sendTextMessage(from, 'Operación cancelada.');
+        return this.sendHelp(from, user?.name ?? null);
+      }
     }
   }
 
@@ -888,6 +895,7 @@ export class BotService {
         '/perfil - Tu cuenta',
         '/kyc - Subir límites de pago',
         '/cambiarpin - Cambiar PIN',
+        '/cancelar - Cancelar operación actual',
         '/soporte - Ayuda humana',
       ].join('\n'),
       [
