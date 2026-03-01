@@ -227,6 +227,18 @@ describe('TransactionService.processP2PPayment', () => {
       // 10000 * 0.01 = 100
       expect(result.fee).toBe(100);
     });
+
+    it('falls back to WALLET fee config for unknown payment method', async () => {
+      // Covers line 262: `const config = FEES[method] || FEES.WALLET`
+      // An unknown method string → FEES[method] is undefined → falls back to FEES.WALLET
+      // WALLET: 1.5% + $0 → 10000 * 0.015 = 150
+      const result = await svc.processP2PPayment({
+        ...baseReq,
+        paymentMethod: 'LEGACY_TRANSFER' as 'KHIPU', // unknown method, cast to satisfy TS
+      });
+      expect(result.success).toBe(true);
+      expect(result.fee).toBe(150);
+    });
   });
 
   // ─── Successful payment ────────────────────────────────
