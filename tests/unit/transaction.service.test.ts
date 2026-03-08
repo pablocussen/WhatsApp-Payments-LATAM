@@ -554,3 +554,53 @@ describe('TransactionService — per-user rate limit', () => {
     expect(result.reference).toBeDefined();
   });
 });
+
+// ─── Recent recipients ──────────────────────────────────
+
+describe('TransactionService.getRecentRecipients', () => {
+  let svc: TransactionService;
+
+  beforeEach(() => {
+    svc = new TransactionService();
+    jest.clearAllMocks();
+  });
+
+  it('returns deduplicated recent recipients', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([
+      { receiverId: 'r1', receiver: { id: 'r1', name: 'Ana', waId: '56911111111' } },
+      { receiverId: 'r1', receiver: { id: 'r1', name: 'Ana', waId: '56911111111' } }, // dup
+      { receiverId: 'r2', receiver: { id: 'r2', name: 'Pedro', waId: '56922222222' } },
+      { receiverId: 'r3', receiver: { id: 'r3', name: null, waId: '56933333333' } },
+    ]);
+
+    const result = await svc.getRecentRecipients(SENDER_ID);
+
+    expect(result).toHaveLength(3);
+    expect(result[0].name).toBe('Ana');
+    expect(result[1].name).toBe('Pedro');
+    expect(result[2].waId).toBe('56933333333');
+  });
+
+  it('returns empty array when no transactions', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([]);
+
+    const result = await svc.getRecentRecipients(SENDER_ID);
+
+    expect(result).toHaveLength(0);
+  });
+
+  it('respects limit parameter', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([
+      { receiverId: 'r1', receiver: { id: 'r1', name: 'A', waId: '561' } },
+      { receiverId: 'r2', receiver: { id: 'r2', name: 'B', waId: '562' } },
+      { receiverId: 'r3', receiver: { id: 'r3', name: 'C', waId: '563' } },
+      { receiverId: 'r4', receiver: { id: 'r4', name: 'D', waId: '564' } },
+    ]);
+
+    const result = await svc.getRecentRecipients(SENDER_ID, 2);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].name).toBe('A');
+    expect(result[1].name).toBe('B');
+  });
+});

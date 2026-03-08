@@ -67,6 +67,7 @@ const mockTransactions = {
   processP2PPayment: jest.fn(),
   getTransactionHistory: jest.fn(),
   getTransactionStats: jest.fn(),
+  getRecentRecipients: jest.fn(),
 };
 
 const mockPaymentLinks = {
@@ -144,6 +145,9 @@ describe('BotService', () => {
     // Crypto defaults
     mockHashPin.mockResolvedValue(MOCKED_HASH);
     mockVerifyPinHash.mockResolvedValue(false);
+
+    // Default: no recent recipients
+    mockTransactions.getRecentRecipients.mockResolvedValue([]);
   });
 
   // ─── Message routing ─────────────────────────────────────
@@ -1569,6 +1573,100 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
     expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
       '56987654321',
       expect.stringContaining('Alguien'),
+    );
+  });
+
+  // ── Recent contacts in startPayFlow ─────────────────────
+
+  it('startPayFlow: with recent recipients → shows sendButtonMessage with rcpt_ buttons', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockTransactions.getRecentRecipients.mockResolvedValue([
+      { id: 'r1', name: 'Maria', waId: '56987654321' },
+      { id: 'r2', name: null, waId: '56911223344' },
+    ]);
+
+    await bot.handleMessage(FROM, '/pagar');
+
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('contacto reciente'),
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'rcpt_56987654321', title: 'Maria' }),
+        expect.objectContaining({ id: 'rcpt_56911223344' }),
+      ]),
+    );
+  });
+
+  it('startPayFlow: no recent recipients → shows sendTextMessage with phone prompt', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockTransactions.getRecentRecipients.mockResolvedValue([]);
+
+    await bot.handleMessage(FROM, '/pagar');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('número de teléfono'),
+    );
+    expect(mockWa.sendButtonMessage).not.toHaveBeenCalled();
+  });
+
+  it('PAY_ENTER_PHONE: rcpt_ button click resolves as phone number', async () => {
+    mockUsers.getUserByWaId
+      .mockResolvedValueOnce(mkUser()) // registered check
+      .mockResolvedValueOnce(mkUser({ id: RECEIVER_ID, name: 'Maria', waId: RECEIVER_WA })); // receiver lookup
+    mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_PHONE'));
+
+    await bot.handleMessage(FROM, 'rcpt_56987654321');
+
+    // Should advance to PAY_ENTER_AMOUNT with receiver info
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({
+        state: 'PAY_ENTER_AMOUNT',
+        data: expect.objectContaining({
+          receiverId: RECEIVER_ID,
+          receiverPhone: '56987654321',
+        }),
+      }),
+    );
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Cuánto quieres enviar'),
+    );
+  });
+
+  // ── Payment receipt timestamps ──────────────────────────
+
+  it('PAY_ENTER_PIN: receipt includes Fecha timestamp', async () => {
+    const sessionData = {
+      receiverId: RECEIVER_ID,
+      amount: 5_000,
+      receiverName: 'Maria',
+      receiverPhone: RECEIVER_WA,
+    };
+    mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_PIN', sessionData));
+    mockUsers.getUserByWaId
+      .mockResolvedValueOnce(mkUser()) // initial user check
+      .mockResolvedValueOnce(mkUser()); // sender name lookup
+    mockUsers.verifyUserPin.mockResolvedValue({ success: true, message: '' });
+    mockTransactions.processP2PPayment.mockResolvedValue({
+      success: true,
+      reference: 'WP-2026-AABB1122',
+      senderBalance: '$10.000 CLP',
+    });
+
+    await bot.handleMessage(FROM, '483920');
+
+    // Sender receipt includes Fecha
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Fecha:'),
+    );
+    // Receiver notification includes Fecha
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      RECEIVER_WA,
+      expect.stringContaining('Fecha:'),
+      expect.any(Array),
     );
   });
 });

@@ -207,6 +207,29 @@ export class TransactionService {
     }
   }
 
+  async getRecentRecipients(
+    userId: string,
+    limit = 3,
+  ): Promise<Array<{ id: string; name: string | null; waId: string }>> {
+    const recent = await prisma.transaction.findMany({
+      where: { senderId: userId, status: 'COMPLETED' },
+      orderBy: { createdAt: 'desc' },
+      take: 20, // scan more to get unique recipients
+      select: { receiverId: true, receiver: { select: { id: true, name: true, waId: true } } },
+    });
+
+    // Deduplicate by receiverId, keep first occurrence (most recent)
+    const seen = new Set<string>();
+    const unique: Array<{ id: string; name: string | null; waId: string }> = [];
+    for (const tx of recent) {
+      if (!seen.has(tx.receiverId) && unique.length < limit) {
+        seen.add(tx.receiverId);
+        unique.push(tx.receiver);
+      }
+    }
+    return unique;
+  }
+
   async getTransactionHistory(userId: string, limit = 5): Promise<string> {
     const transactions = await prisma.transaction.findMany({
       where: {

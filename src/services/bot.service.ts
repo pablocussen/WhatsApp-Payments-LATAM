@@ -12,7 +12,7 @@ import {
   ConversationSession,
 } from '../config/database';
 import { createLogger } from '../config/logger';
-import { formatCLP, formatPhone, divider, receipt } from '../utils/format';
+import { formatCLP, formatPhone, formatDateCL, divider, receipt } from '../utils/format';
 import { validateRut, formatRut, hashPin, verifyPinHash, generateReference } from '../utils/crypto';
 import { isSecurePin } from '../middleware/auth.middleware';
 import { env } from '../config/environment';
@@ -296,10 +296,25 @@ export class BotService {
       lastActivity: Date.now(),
     });
 
-    await this.wa.sendTextMessage(
-      from,
-      '¿A quién le quieres pagar?\n\nEscribe el número de teléfono (ej: +56912345678):',
-    );
+    // Show recent recipients as quick buttons
+    const recent = await this.transactions.getRecentRecipients(userId);
+
+    if (recent.length > 0) {
+      const buttons = recent.map((r) => ({
+        id: `rcpt_${r.waId}`,
+        title: (r.name || formatPhone(r.waId)).slice(0, 20),
+      }));
+      await this.wa.sendButtonMessage(
+        from,
+        '¿A quién le quieres pagar?\n\nElige un contacto reciente o escribe un número:',
+        buttons,
+      );
+    } else {
+      await this.wa.sendTextMessage(
+        from,
+        '¿A quién le quieres pagar?\n\nEscribe el número de teléfono (ej: +56912345678):',
+      );
+    }
   }
 
   private async handlePayFlow(
@@ -310,8 +325,10 @@ export class BotService {
   ): Promise<void> {
     switch (session.state as State) {
       case 'PAY_ENTER_PHONE': {
-        // Find receiver
-        const phone = text.replace(/[\s\-+]/g, '');
+        // Find receiver — handle rcpt_ button clicks
+        const rcptMatch = text.match(/^rcpt_(\d+)$/);
+        const rawPhone = rcptMatch ? rcptMatch[1] : text;
+        const phone = rawPhone.replace(/[\s\-+]/g, '');
         const normalizedPhone = phone.startsWith('56') ? phone : `56${phone}`;
 
         const receiver = await this.users.getUserByWaId(normalizedPhone);
@@ -422,6 +439,8 @@ export class BotService {
           return;
         }
 
+        const now = formatDateCL(new Date());
+
         // Notify sender
         await this.wa.sendTextMessage(
           from,
@@ -430,6 +449,7 @@ export class BotService {
             receipt([
               `${formatCLP(sdn(session.data, 'amount'))} -> ${sd(session.data, 'receiverName')}`,
               `Ref: ${payment.reference}`,
+              `Fecha: ${now}`,
               `Saldo: ${payment.senderBalance}`,
             ]),
           ].join('\n'),
@@ -444,6 +464,7 @@ export class BotService {
             receipt([
               `${sender?.name || formatPhone(from)} te envió ${formatCLP(sdn(session.data, 'amount'))}`,
               `Ref: ${payment.reference}`,
+              `Fecha: ${now}`,
             ]),
           ].join('\n'),
           [
