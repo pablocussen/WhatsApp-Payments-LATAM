@@ -37,6 +37,8 @@ type State =
   | 'PAY_ENTER_PIN'
   | 'CHARGE_ENTER_AMOUNT'
   | 'CHARGE_ENTER_DESCRIPTION'
+  | 'CHARGE_SEND_LINK'
+  | 'CHARGE_ENTER_PHONE'
   | 'TOPUP_SELECT_AMOUNT'
   | 'TOPUP_CUSTOM_AMOUNT'
   | 'CHANGE_PIN_CURRENT'
@@ -489,8 +491,24 @@ export class BotService {
             `Enlace: ${link.url}`,
             `Vence: 24 horas`,
           ]),
-          'Comparte este enlace con tu cliente por WhatsApp.',
         ].join('\n'),
+      );
+
+      // Offer to send the link to a phone
+      await setSession(from, {
+        userId,
+        waId: from,
+        state: 'CHARGE_SEND_LINK',
+        data: { linkUrl: link.url, linkAmount: quickAmount, linkDescription: description },
+        lastActivity: Date.now(),
+      });
+      await this.wa.sendButtonMessage(
+        from,
+        '¿Quieres enviar el cobro a un contacto por WhatsApp?',
+        [
+          { id: 'charge_send_yes', title: 'Sí, enviar' },
+          { id: 'charge_send_no', title: 'No, listo' },
+        ],
       );
       return;
     }
@@ -531,13 +549,12 @@ export class BotService {
 
       case 'CHARGE_ENTER_DESCRIPTION': {
         const description = text.slice(0, 200);
+        const amount = sdn(session.data, 'amount');
         const link = await this.paymentLinks.createLink({
           merchantId: userId,
-          amount: sdn(session.data, 'amount'),
+          amount,
           description,
         });
-
-        await deleteSession(from);
 
         await this.wa.sendTextMessage(
           from,
@@ -549,9 +566,111 @@ export class BotService {
               `Enlace: ${link.url}`,
               `Vence: 24 horas`,
             ]),
-            'Comparte este enlace con tu cliente.',
           ].join('\n'),
         );
+
+        // Offer to send the link to a phone
+        session.state = 'CHARGE_SEND_LINK';
+        session.data.linkUrl = link.url;
+        session.data.linkAmount = amount;
+        session.data.linkDescription = description;
+        await setSession(from, session);
+        await this.wa.sendButtonMessage(
+          from,
+          '¿Quieres enviar el cobro a un contacto por WhatsApp?',
+          [
+            { id: 'charge_send_yes', title: 'Sí, enviar' },
+            { id: 'charge_send_no', title: 'No, listo' },
+          ],
+        );
+        return;
+      }
+
+      case 'CHARGE_SEND_LINK': {
+        const normalized = text.trim().toLowerCase();
+
+        // User declined
+        if (
+          normalized === 'charge_send_no' ||
+          normalized === 'no, listo' ||
+          normalized === 'no'
+        ) {
+          await deleteSession(from);
+          return;
+        }
+
+        // User accepted → ask for phone
+        if (
+          normalized === 'charge_send_yes' ||
+          normalized === 'sí, enviar' ||
+          normalized === 'si'
+        ) {
+          session.state = 'CHARGE_ENTER_PHONE';
+          await setSession(from, session);
+          await this.wa.sendTextMessage(
+            from,
+            'Escribe el número de WhatsApp del destinatario (ej: +56912345678):',
+          );
+          return;
+        }
+
+        // User typed a phone number directly
+        const phone = text.replace(/[\s\-+]/g, '');
+        const normalizedPhone = phone.startsWith('56') ? phone : `56${phone}`;
+
+        if (!/^\d{10,12}$/.test(normalizedPhone)) {
+          await this.wa.sendTextMessage(
+            from,
+            'Número inválido. Escribe un número chileno (ej: +56912345678):',
+          );
+          return;
+        }
+
+        const merchant = await this.users.getUserByWaId(from);
+        await this.wa.sendTextMessage(
+          normalizedPhone,
+          [
+            `${merchant?.name || 'Alguien'} te envió un cobro:`,
+            receipt([
+              `Monto: ${formatCLP(sdn(session.data, 'linkAmount'))}`,
+              `Concepto: ${sd(session.data, 'linkDescription')}`,
+              `Pagar: ${sd(session.data, 'linkUrl')}`,
+            ]),
+          ].join('\n'),
+        );
+
+        await deleteSession(from);
+        await this.wa.sendTextMessage(from, `Cobro enviado a ${formatPhone(normalizedPhone)}.`);
+        return;
+      }
+
+      case 'CHARGE_ENTER_PHONE': {
+        const phone = text.replace(/[\s\-+]/g, '');
+        const normalizedPhone = phone.startsWith('56') ? phone : `56${phone}`;
+
+        if (!/^\d{10,12}$/.test(normalizedPhone)) {
+          await this.wa.sendTextMessage(
+            from,
+            'Número inválido. Escribe un número chileno (ej: +56912345678):',
+          );
+          return;
+        }
+
+        const merchant = await this.users.getUserByWaId(from);
+        await this.wa.sendTextMessage(
+          normalizedPhone,
+          [
+            `${merchant?.name || 'Alguien'} te envió un cobro:`,
+            receipt([
+              `Monto: ${formatCLP(sdn(session.data, 'linkAmount'))}`,
+              `Concepto: ${sd(session.data, 'linkDescription')}`,
+              `Pagar: ${sd(session.data, 'linkUrl')}`,
+            ]),
+          ].join('\n'),
+        );
+
+        await deleteSession(from);
+        await this.wa.sendTextMessage(from, `Cobro enviado a ${formatPhone(normalizedPhone)}.`);
         return;
       }
     }
@@ -888,26 +1007,36 @@ export class BotService {
   }
 
   private async sendHelp(from: string, name: string | null): Promise<void> {
-    await this.wa.sendButtonMessage(
+    await this.wa.sendListMessage(
       from,
+      `${name ? `Hola ${name}!` : 'Hola!'} Soy WhatPay.\nEnvía y recibe dinero desde WhatsApp.`,
+      'Ver opciones',
       [
-        `${name ? `Hola ${name}!` : 'Hola!'} Soy WhatPay.`,
-        '',
-        '/pagar - Enviar dinero',
-        '/cobrar [monto] [concepto] - Cobrar',
-        '/saldo - Tu saldo',
-        '/recargar - Agregar fondos',
-        '/historial - Últimas transacciones',
-        '/perfil - Tu cuenta',
-        '/kyc - Subir límites de pago',
-        '/cambiarpin - Cambiar PIN',
-        '/cancelar - Cancelar operación actual',
-        '/soporte - Ayuda humana',
-      ].join('\n'),
-      [
-        { id: 'cmd_pay', title: 'Enviar pago' },
-        { id: 'cmd_charge', title: 'Cobrar' },
-        { id: 'cmd_balance', title: 'Ver saldo' },
+        {
+          title: 'Pagos',
+          rows: [
+            { id: 'cmd_pay', title: 'Enviar pago', description: 'Transfiere dinero a otro usuario' },
+            { id: 'cmd_charge', title: 'Cobrar', description: 'Crea un enlace de cobro' },
+            { id: 'cmd_balance', title: 'Ver saldo', description: 'Consulta tu saldo actual' },
+            { id: 'cmd_topup', title: 'Recargar saldo', description: 'Agrega fondos vía Khipu' },
+          ],
+        },
+        {
+          title: 'Cuenta',
+          rows: [
+            { id: 'cmd_history', title: 'Historial', description: 'Últimas transacciones' },
+            { id: 'cmd_profile', title: 'Mi perfil', description: 'Tu cuenta y límites' },
+            { id: 'cmd_kyc', title: 'Subir nivel', description: 'Aumenta tus límites de pago' },
+            { id: 'cmd_changepin', title: 'Cambiar PIN', description: 'Actualiza tu PIN de seguridad' },
+          ],
+        },
+        {
+          title: 'Otros',
+          rows: [
+            { id: 'cmd_cancel', title: 'Cancelar', description: 'Cancela la operación actual' },
+            { id: 'cmd_support', title: 'Soporte', description: 'Contacta ayuda humana' },
+          ],
+        },
       ],
     );
   }

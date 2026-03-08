@@ -47,6 +47,7 @@ jest.mock('../../src/utils/crypto', () => {
 const mockWa = {
   sendTextMessage: jest.fn(),
   sendButtonMessage: jest.fn(),
+  sendListMessage: jest.fn(),
 };
 
 const mockUsers = {
@@ -131,6 +132,7 @@ describe('BotService', () => {
     // Resolve void by default
     mockWa.sendTextMessage.mockResolvedValue(undefined);
     mockWa.sendButtonMessage.mockResolvedValue(undefined);
+    mockWa.sendListMessage.mockResolvedValue(undefined);
     mockSetSession.mockResolvedValue(undefined);
     mockDeleteSession.mockResolvedValue(undefined);
     mockUsers.setNewPin.mockResolvedValue(undefined);
@@ -194,9 +196,10 @@ describe('BotService', () => {
 
       await bot.handleMessage(FROM, 'que hay');
 
-      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendListMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('/pagar'),
+        expect.stringContaining('WhatPay'),
+        expect.any(String),
         expect.any(Array),
       );
     });
@@ -479,7 +482,7 @@ describe('BotService', () => {
   // ─── CHARGE flow ─────────────────────────────────────────
 
   describe('CHARGE flow', () => {
-    it('quick charge "/cobrar 3500 Café" creates link without entering session', async () => {
+    it('quick charge "/cobrar 3500 Café" creates link and offers to send', async () => {
       mockUsers.getUserByWaId.mockResolvedValue(mkUser());
       mockPaymentLinks.createLink.mockResolvedValue({
         amountFormatted: '$3.500 CLP',
@@ -492,6 +495,16 @@ describe('BotService', () => {
         expect.objectContaining({ merchantId: USER_ID, amount: 3500, description: 'Café' }),
       );
       expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('ABC123'));
+      // Now offers to send via WhatsApp
+      expect(mockSetSession).toHaveBeenCalledWith(
+        FROM,
+        expect.objectContaining({ state: 'CHARGE_SEND_LINK' }),
+      );
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+        FROM,
+        expect.stringContaining('enviar el cobro'),
+        expect.arrayContaining([expect.objectContaining({ id: 'charge_send_yes' })]),
+      );
     });
 
     it('CHARGE_ENTER_AMOUNT: amount below $100 → error, no state advance', async () => {
@@ -519,7 +532,7 @@ describe('BotService', () => {
       );
     });
 
-    it('CHARGE_ENTER_DESCRIPTION: creates link + deleteSession', async () => {
+    it('CHARGE_ENTER_DESCRIPTION: creates link and transitions to CHARGE_SEND_LINK', async () => {
       mockGetSession.mockResolvedValue(mkSession('CHARGE_ENTER_DESCRIPTION', { amount: 8_500 }));
       mockUsers.getUserByWaId.mockResolvedValue(mkUser());
       mockPaymentLinks.createLink.mockResolvedValue({
@@ -532,8 +545,12 @@ describe('BotService', () => {
       expect(mockPaymentLinks.createLink).toHaveBeenCalledWith(
         expect.objectContaining({ amount: 8_500, description: 'Café con leche' }),
       );
-      expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
       expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('XYZ789'));
+      // Transitions to CHARGE_SEND_LINK instead of deleting session
+      expect(mockSetSession).toHaveBeenCalledWith(
+        FROM,
+        expect.objectContaining({ state: 'CHARGE_SEND_LINK', data: expect.objectContaining({ linkUrl: 'https://whatpay.cl/p/XYZ789' }) }),
+      );
     });
   });
 
@@ -716,9 +733,10 @@ describe('BotService', () => {
       await bot.handleMessage(FROM, 'anything');
 
       expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendListMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('/pagar'),
+        expect.stringContaining('WhatPay'),
+        expect.any(String),
         expect.any(Array),
       );
     });
@@ -908,9 +926,10 @@ describe('BotService', () => {
         .mockResolvedValueOnce(mkUser()) // handleMessage: user is registered
         .mockResolvedValueOnce(mkUser()); // case 'help': get name
       await bot.handleMessage(FROM, '/ayuda');
-      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendListMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('/pagar'),
+        expect.stringContaining('WhatPay'),
+        expect.any(String),
         expect.any(Array),
       );
     });
@@ -920,8 +939,9 @@ describe('BotService', () => {
         .mockResolvedValueOnce(mkUser()) // registered check
         .mockResolvedValueOnce({ ...mkUser(), name: null }); // case 'help': null name
       await bot.handleMessage(FROM, '/ayuda');
-      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendListMessage).toHaveBeenCalledWith(
         FROM,
+        expect.stringContaining('Hola!'),
         expect.any(String),
         expect.any(Array),
       );
@@ -1186,6 +1206,7 @@ describe('BotService — /cancelar command', () => {
     jest.clearAllMocks();
     mockWa.sendTextMessage.mockResolvedValue(undefined);
     mockWa.sendButtonMessage.mockResolvedValue(undefined);
+    mockWa.sendListMessage.mockResolvedValue(undefined);
     mockSetSession.mockResolvedValue(undefined);
     mockDeleteSession.mockResolvedValue(undefined);
   });
@@ -1198,7 +1219,7 @@ describe('BotService — /cancelar command', () => {
 
     expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
     expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, 'Operación cancelada.');
-    expect(mockWa.sendButtonMessage).toHaveBeenCalled();
+    expect(mockWa.sendListMessage).toHaveBeenCalled();
   });
 
   it('"cancelar" text (no slash) → same cancel behaviour', async () => {
@@ -1218,9 +1239,10 @@ describe('BotService — /cancelar command', () => {
     await bot.handleMessage(FROM, '/cancelar');
 
     expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendListMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('Hola!'),
+      expect.any(String),
       expect.any(Array),
     );
   });
@@ -1236,6 +1258,7 @@ describe('BotService — /recargar → TOPUP flow', () => {
     jest.clearAllMocks();
     mockWa.sendTextMessage.mockResolvedValue(undefined);
     mockWa.sendButtonMessage.mockResolvedValue(undefined);
+    mockWa.sendListMessage.mockResolvedValue(undefined);
     mockSetSession.mockResolvedValue(undefined);
     mockDeleteSession.mockResolvedValue(undefined);
     mockRedisSet.mockResolvedValue('OK');
@@ -1385,6 +1408,167 @@ describe('BotService — /recargar → TOPUP flow', () => {
     expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('Error al generar el link'),
+    );
+  });
+});
+
+// ─── CHARGE_SEND_LINK flow (auto-notification) ──────────
+
+describe('BotService — CHARGE_SEND_LINK flow', () => {
+  let bot: BotService;
+
+  beforeEach(() => {
+    bot = new BotService();
+    jest.clearAllMocks();
+    mockWa.sendTextMessage.mockResolvedValue(undefined);
+    mockWa.sendButtonMessage.mockResolvedValue(undefined);
+    mockWa.sendListMessage.mockResolvedValue(undefined);
+    mockSetSession.mockResolvedValue(undefined);
+    mockDeleteSession.mockResolvedValue(undefined);
+  });
+
+  it('CHARGE_SEND_LINK: decline with "no" button → deletes session', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(
+      mkSession('CHARGE_SEND_LINK', { linkUrl: 'https://whatpay.cl/p/ABC', linkAmount: 3500, linkDescription: 'Café' }),
+    );
+
+    await bot.handleMessage(FROM, 'charge_send_no');
+
+    expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+    expect(mockWa.sendTextMessage).not.toHaveBeenCalledWith(
+      expect.stringMatching(/56/),
+      expect.any(String),
+    );
+  });
+
+  it('CHARGE_SEND_LINK: accept → transitions to CHARGE_ENTER_PHONE', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(
+      mkSession('CHARGE_SEND_LINK', { linkUrl: 'https://whatpay.cl/p/ABC', linkAmount: 3500, linkDescription: 'Café' }),
+    );
+
+    await bot.handleMessage(FROM, 'charge_send_yes');
+
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({ state: 'CHARGE_ENTER_PHONE' }),
+    );
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('número de WhatsApp'),
+    );
+  });
+
+  it('CHARGE_SEND_LINK: direct phone input → sends charge to that phone', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(
+      mkSession('CHARGE_SEND_LINK', { linkUrl: 'https://whatpay.cl/p/ABC', linkAmount: 3500, linkDescription: 'Café' }),
+    );
+
+    await bot.handleMessage(FROM, '+56987654321');
+
+    // Should send the charge to the target phone
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      '56987654321',
+      expect.stringContaining('whatpay.cl/p/ABC'),
+    );
+    // Confirm to sender
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Cobro enviado'),
+    );
+    expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+  });
+
+  it('CHARGE_SEND_LINK: invalid phone → error message, stays in state', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(
+      mkSession('CHARGE_SEND_LINK', { linkUrl: 'https://whatpay.cl/p/ABC', linkAmount: 3500, linkDescription: 'Café' }),
+    );
+
+    await bot.handleMessage(FROM, '123');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Número inválido'),
+    );
+    expect(mockDeleteSession).not.toHaveBeenCalled();
+  });
+
+  it('CHARGE_SEND_LINK: merchant has null name → shows "Alguien"', async () => {
+    mockUsers.getUserByWaId
+      .mockResolvedValueOnce(mkUser({ name: null })) // registered check
+      .mockResolvedValueOnce(null); // merchant lookup returns null
+    mockGetSession.mockResolvedValue(
+      mkSession('CHARGE_SEND_LINK', { linkUrl: 'https://whatpay.cl/p/XY', linkAmount: 5000, linkDescription: 'Test' }),
+    );
+
+    await bot.handleMessage(FROM, '56987654321');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      '56987654321',
+      expect.stringContaining('Alguien'),
+    );
+  });
+
+  it('CHARGE_ENTER_PHONE: valid phone → sends charge notification', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(
+      mkSession('CHARGE_ENTER_PHONE', { linkUrl: 'https://whatpay.cl/p/DEF', linkAmount: 8500, linkDescription: 'Almuerzo' }),
+    );
+
+    await bot.handleMessage(FROM, '56987654321');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      '56987654321',
+      expect.stringContaining('whatpay.cl/p/DEF'),
+    );
+    expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+  });
+
+  it('CHARGE_ENTER_PHONE: invalid phone → error stays in state', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockGetSession.mockResolvedValue(
+      mkSession('CHARGE_ENTER_PHONE', { linkUrl: 'https://whatpay.cl/p/DEF', linkAmount: 8500, linkDescription: 'Almuerzo' }),
+    );
+
+    await bot.handleMessage(FROM, 'abc');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Número inválido'),
+    );
+    expect(mockDeleteSession).not.toHaveBeenCalled();
+  });
+
+  it('CHARGE_ENTER_PHONE: merchant with name → includes name in notification', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser({ name: 'Juan' }));
+    mockGetSession.mockResolvedValue(
+      mkSession('CHARGE_ENTER_PHONE', { linkUrl: 'https://whatpay.cl/p/GHI', linkAmount: 2000, linkDescription: 'Pan' }),
+    );
+
+    await bot.handleMessage(FROM, '56987654321');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      '56987654321',
+      expect.stringContaining('Juan'),
+    );
+  });
+
+  it('CHARGE_ENTER_PHONE: merchant null name → shows "Alguien"', async () => {
+    mockUsers.getUserByWaId
+      .mockResolvedValueOnce(mkUser({ name: null })) // registered check
+      .mockResolvedValueOnce(null); // merchant lookup
+    mockGetSession.mockResolvedValue(
+      mkSession('CHARGE_ENTER_PHONE', { linkUrl: 'https://whatpay.cl/p/JKL', linkAmount: 1500, linkDescription: 'Jugo' }),
+    );
+
+    await bot.handleMessage(FROM, '56987654321');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      '56987654321',
+      expect.stringContaining('Alguien'),
     );
   });
 });

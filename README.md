@@ -3,7 +3,7 @@
 > Plataforma de pagos peer-to-peer integrada nativamente con WhatsApp.
 > Backend en Node.js + TypeScript, desplegado en GCP Cloud Run (Santiago).
 
-[![Tests](https://img.shields.io/badge/tests-486%2F486%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-502%2F502%20passing-25D366)](https://github.com/pablocussen/WhatsApp-Payments-LATAM/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-100%25%20branches-brightgreen)](https://github.com/pablocussen/WhatsApp-Payments-LATAM)
 [![Cloud Build](https://img.shields.io/badge/CI%2FCD-Cloud%20Build-4285F4?logo=googlecloud&logoColor=white)](https://console.cloud.google.com/cloud-build/builds?project=whatpay-cl)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)

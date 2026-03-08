@@ -112,6 +112,58 @@ describe('WhatsAppService — sendButtonMessage', () => {
   });
 });
 
+describe('WhatsAppService — sendListMessage', () => {
+  let svc: WhatsAppService;
+
+  beforeEach(() => {
+    svc = new WhatsAppService();
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(okResponse);
+  });
+
+  it('sends interactive list message with correct structure', async () => {
+    await svc.sendListMessage('56912345678', 'Elige una opción:', 'Ver opciones', [
+      {
+        title: 'Pagos',
+        rows: [
+          { id: 'pay', title: 'Enviar pago', description: 'Transfiere dinero' },
+          { id: 'charge', title: 'Cobrar' },
+        ],
+      },
+    ]);
+    const body = lastCallBody();
+    expect(body.type).toBe('interactive');
+    expect(body.interactive.type).toBe('list');
+    expect(body.interactive.body.text).toBe('Elige una opción:');
+    expect(body.interactive.action.button).toBe('Ver opciones');
+    expect(body.interactive.action.sections).toHaveLength(1);
+    expect(body.interactive.action.sections[0].title).toBe('Pagos');
+    expect(body.interactive.action.sections[0].rows).toHaveLength(2);
+    expect(body.interactive.action.sections[0].rows[0].id).toBe('pay');
+    expect(body.interactive.action.sections[0].rows[0].description).toBe('Transfiere dinero');
+  });
+
+  it('truncates button text to 20 chars and section title to 24 chars', async () => {
+    await svc.sendListMessage('56912345678', 'Body', 'A very long button text that exceeds twenty', [
+      {
+        title: 'This section title is way too long for the limit',
+        rows: [{ id: 'r1', title: 'Row 1' }],
+      },
+    ]);
+    const body = lastCallBody();
+    expect(body.interactive.action.button.length).toBeLessThanOrEqual(20);
+    expect(body.interactive.action.sections[0].title.length).toBeLessThanOrEqual(24);
+  });
+
+  it('row without description omits description field', async () => {
+    await svc.sendListMessage('56912345678', 'Body', 'Menu', [
+      { title: 'Section', rows: [{ id: 'r1', title: 'No desc' }] },
+    ]);
+    const body = lastCallBody();
+    expect(body.interactive.action.sections[0].rows[0].description).toBeUndefined();
+  });
+});
+
 describe('WhatsAppService — sendPaymentConfirmation', () => {
   let svc: WhatsAppService;
 

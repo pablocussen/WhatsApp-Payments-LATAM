@@ -28,6 +28,27 @@ interface WhatsAppButtonMessage {
   };
 }
 
+interface WhatsAppListMessage {
+  messaging_product: 'whatsapp';
+  to: string;
+  type: 'interactive';
+  interactive: {
+    type: 'list';
+    body: { text: string };
+    action: {
+      button: string;
+      sections: Array<{
+        title: string;
+        rows: Array<{
+          id: string;
+          title: string;
+          description?: string;
+        }>;
+      }>;
+    };
+  };
+}
+
 interface IncomingMessage {
   from: string;
   id: string;
@@ -80,6 +101,38 @@ export class WhatsAppService {
           buttons: buttons.slice(0, 3).map((btn) => ({
             type: 'reply' as const,
             reply: { id: btn.id, title: btn.title },
+          })),
+        },
+      },
+    };
+    await this.sendMessage(message);
+  }
+
+  async sendListMessage(
+    to: string,
+    body: string,
+    buttonText: string,
+    sections: Array<{
+      title: string;
+      rows: Array<{ id: string; title: string; description?: string }>;
+    }>,
+  ): Promise<void> {
+    const message: WhatsAppListMessage = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'list',
+        body: { text: body },
+        action: {
+          button: buttonText.slice(0, 20),
+          sections: sections.slice(0, 10).map((s) => ({
+            title: s.title.slice(0, 24),
+            rows: s.rows.slice(0, 10).map((r) => ({
+              id: r.id,
+              title: r.title.slice(0, 24),
+              ...(r.description ? { description: r.description.slice(0, 72) } : {}),
+            })),
           })),
         },
       },
@@ -165,7 +218,9 @@ export class WhatsAppService {
     return null;
   }
 
-  private async sendMessage(message: WhatsAppTextMessage | WhatsAppButtonMessage): Promise<void> {
+  private async sendMessage(
+    message: WhatsAppTextMessage | WhatsAppButtonMessage | WhatsAppListMessage,
+  ): Promise<void> {
     const url = `${this.apiUrl}/${this.phoneNumberId}/messages`;
 
     const response = await fetch(url, {

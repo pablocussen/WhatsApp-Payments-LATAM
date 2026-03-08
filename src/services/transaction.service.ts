@@ -1,4 +1,4 @@
-import { prisma } from '../config/database';
+import { prisma, getRedis } from '../config/database';
 import type { Prisma } from '@prisma/client';
 import { createLogger } from '../config/logger';
 import { generateReference } from '../utils/crypto';
@@ -66,12 +66,18 @@ export class TransactionService {
       return { success: false, error: 'No puedes pagarte a ti mismo.' };
     }
 
-    // 1. Validate amount
+    // 1. Per-user frequency limit (10 payments/hour, sliding window)
+    const rateLimited = await this.checkUserRateLimit(senderId);
+    if (rateLimited) {
+      return { success: false, error: 'Demasiados pagos en poco tiempo. Espera un momento e intenta de nuevo.' };
+    }
+
+    // 2. Validate amount
     if (amount < 100) {
       return { success: false, error: 'Monto mínimo: $100 CLP.' };
     }
 
-    // 2. Check KYC limits
+    // 3. Check KYC limits
     const sender = await prisma.user.findUnique({ where: { id: senderId } });
     if (!sender) return { success: false, error: 'Usuario no encontrado.' };
 
@@ -83,7 +89,7 @@ export class TransactionService {
       };
     }
 
-    // 3. Fraud check
+    // 4. Fraud check
     const fraudResult = await this.fraud.checkTransaction({
       senderId,
       receiverId,
@@ -102,12 +108,12 @@ export class TransactionService {
       };
     }
 
-    // 4. Calculate fee (P2P wallet = free)
+    // 5. Calculate fee (P2P wallet = free)
     const isP2P = req.paymentMethod === 'WALLET';
     const fee = isP2P ? 0 : this.calculateFee(amount, req.paymentMethod);
     const reference = generateReference();
 
-    // 5. Execute payment atomically (record + transfer + status in one transaction)
+    // 6. Execute payment atomically (record + transfer + status in one transaction)
     try {
       const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // Create transaction record
@@ -172,6 +178,9 @@ export class TransactionService {
           senderBalance: Number(senderWallet.balance) - amount,
         };
       });
+
+      // Record for per-user rate limit
+      await this.recordUserPayment(senderId);
 
       log.info('Payment completed', {
         transactionId: result.transactionId,
@@ -266,6 +275,29 @@ export class TransactionService {
       txCount: sent._count,
       monthlySent: Number(monthly._sum.amount ?? 0),
     };
+  }
+
+  private readonly MAX_PAYMENTS_PER_HOUR = 10;
+
+  private async checkUserRateLimit(userId: string): Promise<boolean> {
+    try {
+      const redis = getRedis();
+      const key = `ratelimit:pay:${userId}`;
+      const count = await redis.get(key);
+      return parseInt(count || '0', 10) >= this.MAX_PAYMENTS_PER_HOUR;
+    } catch {
+      return false; // Fail open
+    }
+  }
+
+  private async recordUserPayment(userId: string): Promise<void> {
+    try {
+      const redis = getRedis();
+      const key = `ratelimit:pay:${userId}`;
+      await redis.multi().incr(key).expire(key, 3600).exec();
+    } catch {
+      // Non-critical
+    }
   }
 
   private calculateFee(amount: number, method: string): number {

@@ -27,7 +27,20 @@ const mockPrisma = {
   $transaction: jest.fn(),
 };
 
-jest.mock('../../src/config/database', () => ({ prisma: mockPrisma }));
+const mockRedisGet = jest.fn();
+const mockRedisMulti = jest.fn().mockReturnValue({
+  incr: jest.fn().mockReturnThis(),
+  expire: jest.fn().mockReturnThis(),
+  exec: jest.fn().mockResolvedValue([]),
+});
+
+jest.mock('../../src/config/database', () => ({
+  prisma: mockPrisma,
+  getRedis: jest.fn().mockReturnValue({
+    get: (...args: unknown[]) => mockRedisGet(...args),
+    multi: () => mockRedisMulti(),
+  }),
+}));
 
 // ─── FraudService mock ───────────────────────────────────
 
@@ -88,6 +101,9 @@ describe('TransactionService.processP2PPayment', () => {
     mockPrisma.$transaction.mockImplementation(
       async (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
     );
+
+    // Default: no rate limit
+    mockRedisGet.mockResolvedValue(null);
 
     // Default user: BASIC KYC (perTx=50000, monthly=200000)
     mockPrisma.user.findUnique.mockResolvedValue({ id: SENDER_ID, kycLevel: 'BASIC' });
@@ -472,5 +488,69 @@ describe('TransactionService.getTransactionStats', () => {
     expect(result.totalReceived).toBe(0);
     expect(result.txCount).toBe(0);
     expect(result.monthlySent).toBe(0);
+  });
+});
+
+// ─── Per-user rate limit ────────────────────────────────
+
+describe('TransactionService — per-user rate limit', () => {
+  let svc: TransactionService;
+
+  beforeEach(() => {
+    svc = new TransactionService();
+    jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation(
+      async (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
+    );
+    mockPrisma.user.findUnique.mockResolvedValue({ id: SENDER_ID, kycLevel: 'BASIC' });
+    mockCheckTransaction.mockResolvedValue(approvedFraud);
+    mockTx.transaction.create.mockResolvedValue({ id: 'tx-uuid' });
+    mockTx.$queryRaw.mockResolvedValue([{ balance: '100000' }]);
+    mockTx.transaction.aggregate.mockResolvedValue({ _sum: { amount: BigInt(0) } });
+    mockTx.wallet.update.mockResolvedValue({});
+    mockTx.transaction.update.mockResolvedValue({});
+  });
+
+  it('blocks payment when user exceeds 10 payments per hour', async () => {
+    mockRedisGet.mockResolvedValue('10'); // At the limit
+
+    const result = await svc.processP2PPayment(baseReq);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Demasiados pagos');
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('allows payment when rate limit counter is below threshold', async () => {
+    mockRedisGet.mockResolvedValue('5'); // Under limit
+
+    const result = await svc.processP2PPayment(baseReq);
+
+    expect(result.success).toBe(true);
+  });
+
+  it('fails open when Redis throws during rate limit check', async () => {
+    mockRedisGet.mockRejectedValue(new Error('Redis down'));
+
+    const result = await svc.processP2PPayment(baseReq);
+
+    // Should not block — fail open
+    expect(result.success).toBe(true);
+  });
+
+  it('completes payment even when Redis recordUserPayment throws', async () => {
+    mockRedisGet.mockResolvedValue('0');
+    // Make multi() throw after successful payment
+    mockRedisMulti.mockReturnValue({
+      incr: jest.fn().mockReturnThis(),
+      expire: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockRejectedValue(new Error('Redis write fail')),
+    });
+
+    const result = await svc.processP2PPayment(baseReq);
+
+    // Payment should still succeed even though rate limit recording failed
+    expect(result.success).toBe(true);
+    expect(result.reference).toBeDefined();
   });
 });
