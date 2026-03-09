@@ -43,6 +43,9 @@ const envSchema = z.object({
   // Cloud AI
   FRAUD_MODEL_ENDPOINT: z.string().url().optional(),
 
+  // Admin
+  ADMIN_API_KEY: z.string().min(32).optional(), // Required to access /api/v1/admin
+
   // App
   APP_BASE_URL: z.string().url().default('https://whatpay.cl'),
   PAYMENT_LINK_BASE_URL: z.string().url().default('https://whatpay.cl/c'),
