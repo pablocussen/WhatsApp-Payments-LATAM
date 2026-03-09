@@ -122,6 +122,27 @@ model PaymentLink {
   @@map("payment_links")
 }
 
+// ─── Auditoría ───────────────────────────────────────────
+
+model AuditEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  eventType     String   @map("event_type")
+  actorType     String   @map("actor_type")      // USER, SYSTEM, ADMIN
+  actorId       String?  @map("actor_id") @db.Uuid
+  targetUserId  String?  @map("target_user_id") @db.Uuid
+  amount        BigInt?
+  metadata      Json?
+  status        String   @default("SUCCESS")
+  errorMessage  String?  @map("error_message")
+  transactionId String?  @map("transaction_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([targetUserId, createdAt(sort: Desc)])
+  @@index([eventType, createdAt(sort: Desc)])
+  @@index([transactionId])
+  @@map("audit_events")
+}
+
 // ─── Cuentas Bancarias ──────────────────────────────────
 
 model BankAccount {

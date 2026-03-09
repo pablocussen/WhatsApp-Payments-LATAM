@@ -4,6 +4,7 @@ import { prisma } from '../config/database';
 import { env } from '../config/environment';
 import { createLogger } from '../config/logger';
 import { asyncHandler } from '../utils/async-handler';
+import { audit } from '../services/audit.service';
 
 const log = createLogger('admin-api');
 const router = Router();
@@ -108,6 +109,7 @@ router.post(
     });
 
     log.info('User banned', { userId: req.params.id, adminIp: req.ip });
+    audit.log({ eventType: 'USER_BANNED', actorType: 'ADMIN', targetUserId: req.params.id, metadata: { adminIp: req.ip } });
     return res.json({ message: 'User banned.', userId: req.params.id });
   }),
 );
@@ -124,6 +126,7 @@ router.post(
     });
 
     log.info('User unbanned', { userId: req.params.id, adminIp: req.ip });
+    audit.log({ eventType: 'USER_UNBANNED', actorType: 'ADMIN', targetUserId: req.params.id, metadata: { adminIp: req.ip } });
     return res.json({ message: 'User unbanned.', userId: req.params.id });
   }),
 );
@@ -209,6 +212,22 @@ router.get(
       totalVolume: Number(totalVolume._sum.amount ?? 0),
       activePaymentLinks: activeLinks,
     });
+  }),
+);
+
+// ─── Audit Log ──────────────────────────────────────────
+
+router.get(
+  '/audit',
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await audit.query({
+      userId: req.query.userId as string | undefined,
+      eventType: req.query.eventType as string | undefined,
+      page: parseInt(req.query.page as string) || 1,
+      pageSize: parseInt(req.query.pageSize as string) || 20,
+    });
+
+    return res.json(result);
   }),
 );
 

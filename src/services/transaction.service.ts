@@ -5,6 +5,7 @@ import { generateReference } from '../utils/crypto';
 import { formatCLP, formatDateCL, divider } from '../utils/format';
 import { WalletService, InsufficientFundsError } from './wallet.service';
 import { FraudService } from './fraud.service';
+import { audit } from './audit.service';
 
 const log = createLogger('transaction-service');
 
@@ -100,6 +101,14 @@ export class TransactionService {
 
     if (fraudResult.action === 'block') {
       log.warn('Payment blocked by fraud', { senderId, amount, score: fraudResult.score });
+      audit.log({
+        eventType: 'PAYMENT_BLOCKED',
+        actorType: 'SYSTEM',
+        targetUserId: senderId,
+        amount,
+        metadata: { receiverId, fraudScore: fraudResult.score, reasons: fraudResult.reasons },
+        status: 'BLOCKED',
+      });
       return {
         success: false,
         error:
@@ -190,6 +199,16 @@ export class TransactionService {
         fraudScore: fraudResult.score,
       });
 
+      audit.log({
+        eventType: 'PAYMENT_COMPLETED',
+        actorType: 'USER',
+        actorId: senderId,
+        targetUserId: senderId,
+        amount,
+        transactionId: result.transactionId,
+        metadata: { receiverId, reference, fee, fraudScore: fraudResult.score, paymentMethod: req.paymentMethod },
+      });
+
       return {
         success: true,
         reference,
@@ -199,6 +218,15 @@ export class TransactionService {
       };
     } catch (err) {
       if (err instanceof InsufficientFundsError || err instanceof MonthlyLimitExceededError) {
+        audit.log({
+          eventType: 'PAYMENT_FAILED',
+          actorType: 'SYSTEM',
+          targetUserId: senderId,
+          amount,
+          status: 'FAILED',
+          errorMessage: (err as Error).message,
+          metadata: { receiverId, reference },
+        });
         return { success: false, error: err.message };
       }
 
@@ -424,9 +452,27 @@ export class TransactionService {
         requesterId,
       });
 
+      audit.log({
+        eventType: 'REFUND_COMPLETED',
+        actorType: 'USER',
+        actorId: requesterId,
+        targetUserId: requesterId,
+        amount,
+        metadata: { originalReference: reference, refundReference: refundRef, originalSenderId: original.senderId },
+      });
+
       return { success: true, refundReference: refundRef };
     } catch (err) {
       if (err instanceof InsufficientFundsError) {
+        audit.log({
+          eventType: 'REFUND_FAILED',
+          actorType: 'SYSTEM',
+          targetUserId: requesterId,
+          amount,
+          status: 'FAILED',
+          errorMessage: (err as Error).message,
+          metadata: { originalReference: reference },
+        });
         return { success: false, error: err.message };
       }
       log.error('Refund failed', { error: (err as Error).message, reference });

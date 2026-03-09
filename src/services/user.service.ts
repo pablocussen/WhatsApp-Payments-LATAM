@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { createLogger } from '../config/logger';
 import { hashPin, verifyPinHash, validateRut, cleanRut, hmacHash, encrypt } from '../utils/crypto';
 import { isSecurePin } from '../middleware/auth.middleware';
+import { audit } from './audit.service';
 
 const log = createLogger('user-service');
 
@@ -109,6 +110,7 @@ export class UserService {
     }
 
     log.info('User created', { userId: user.id, kycLevel: 'BASIC' });
+    audit.log({ eventType: 'USER_CREATED', actorType: 'SYSTEM', targetUserId: user.id, metadata: { waId: input.waId } });
 
     return { success: true, userId: user.id };
   }
@@ -191,6 +193,7 @@ export class UserService {
 
     if (shouldLock) {
       log.warn('Account locked', { userId: user.id, reason: 'max_pin_attempts' });
+      audit.log({ eventType: 'ACCOUNT_LOCKED', actorType: 'SYSTEM', targetUserId: user.id, metadata: { reason: 'max_pin_attempts' } });
       return {
         success: false,
         isLocked: true,
@@ -221,6 +224,7 @@ export class UserService {
     });
 
     log.info('PIN changed', { waId });
+    audit.log({ eventType: 'PIN_CHANGED', actorType: 'USER', metadata: { waId, via: 'changePin' } });
     return { success: true, message: 'PIN actualizado correctamente.' };
   }
 
@@ -232,6 +236,7 @@ export class UserService {
       data: { pinHash: newHash, pinAttempts: 0, lockedUntil: null },
     });
     log.info('PIN set via bot flow', { waId });
+    audit.log({ eventType: 'PIN_CHANGED', actorType: 'USER', metadata: { waId, via: 'setNewPin' } });
   }
 
   async updateKycLevel(userId: string, level: 'BASIC' | 'INTERMEDIATE' | 'FULL'): Promise<void> {
@@ -240,6 +245,7 @@ export class UserService {
       data: { kycLevel: level },
     });
     log.info('KYC level updated', { userId, level });
+    audit.log({ eventType: 'KYC_UPGRADED', actorType: 'USER', targetUserId: userId, metadata: { level } });
   }
 
   async getUserCount(): Promise<number> {

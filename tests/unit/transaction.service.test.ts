@@ -24,6 +24,7 @@ const mockTx = {
 const mockPrisma = {
   user: { findUnique: jest.fn() },
   transaction: { findMany: jest.fn(), aggregate: jest.fn(), findFirst: jest.fn() },
+  auditEvent: { create: jest.fn().mockResolvedValue({}) },
   $transaction: jest.fn(),
 };
 

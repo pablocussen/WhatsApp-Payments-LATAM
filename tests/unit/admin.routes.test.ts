@@ -18,6 +18,7 @@ const mockPrisma = {
     aggregate: jest.fn(),
   },
   paymentLink: { count: jest.fn() },
+  auditEvent: { create: jest.fn().mockResolvedValue({}), findMany: jest.fn(), count: jest.fn() },
 };
 
 jest.mock('../../src/config/environment', () => ({
@@ -237,5 +238,51 @@ describe('GET /stats', () => {
 
     const res = await client.get('/stats', adminHeaders());
     expect((res.body as { totalVolume: number }).totalVolume).toBe(0);
+  });
+});
+
+// ─── GET /audit ─────────────────────────────────────────
+
+describe('GET /audit', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns paginated audit events', async () => {
+    const events = [
+      {
+        id: 'evt-1',
+        eventType: 'PAYMENT_COMPLETED',
+        actorType: 'USER',
+        actorId: 'u1',
+        targetUserId: 'u1',
+        amount: BigInt(5000),
+        metadata: null,
+        status: 'SUCCESS',
+        errorMessage: null,
+        transactionId: null,
+        createdAt: new Date(),
+      },
+    ];
+    mockPrisma.auditEvent.findMany.mockResolvedValue(events);
+    mockPrisma.auditEvent.count.mockResolvedValue(1);
+
+    const res = await client.get('/audit', adminHeaders());
+    expect(res.status).toBe(200);
+
+    const body = res.body as { events: unknown[]; total: number };
+    expect(body.total).toBe(1);
+    expect(body.events).toHaveLength(1);
+  });
+
+  it('filters by userId and eventType', async () => {
+    mockPrisma.auditEvent.findMany.mockResolvedValue([]);
+    mockPrisma.auditEvent.count.mockResolvedValue(0);
+
+    const res = await client.get('/audit?userId=u1&eventType=PAYMENT_COMPLETED', adminHeaders());
+    expect(res.status).toBe(200);
+    expect(mockPrisma.auditEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { targetUserId: 'u1', eventType: 'PAYMENT_COMPLETED' },
+      }),
+    );
   });
 });
