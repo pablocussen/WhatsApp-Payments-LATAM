@@ -23,7 +23,7 @@ const mockTx = {
 
 const mockPrisma = {
   user: { findUnique: jest.fn() },
-  transaction: { findMany: jest.fn(), aggregate: jest.fn() },
+  transaction: { findMany: jest.fn(), aggregate: jest.fn(), findFirst: jest.fn() },
   $transaction: jest.fn(),
 };
 
@@ -602,5 +602,103 @@ describe('TransactionService.getRecentRecipients', () => {
     expect(result).toHaveLength(2);
     expect(result[0].name).toBe('A');
     expect(result[1].name).toBe('B');
+  });
+});
+
+// ─── getTransactionByReference ───────────────────────────
+
+describe('TransactionService.getTransactionByReference', () => {
+  let svc: TransactionService;
+
+  beforeEach(() => {
+    svc = new TransactionService();
+    jest.clearAllMocks();
+  });
+
+  it('returns formatted receipt for sender', async () => {
+    mockPrisma.transaction.findFirst.mockResolvedValue({
+      senderId: SENDER_ID,
+      receiverId: RECEIVER_ID,
+      amount: 5000,
+      fee: 0,
+      status: 'COMPLETED',
+      reference: '#WP-2026-AABB1122',
+      createdAt: new Date('2026-03-01T12:00:00Z'),
+      sender: { name: 'Juan', waId: '56912345678' },
+      receiver: { name: 'Maria', waId: '56987654321' },
+    });
+
+    const result = await svc.getTransactionByReference('#WP-2026-AABB1122', SENDER_ID);
+
+    expect(result).not.toBeNull();
+    expect(result!.direction).toBe('Enviado');
+    expect(result!.otherParty).toBe('Maria');
+    expect(result!.reference).toBe('#WP-2026-AABB1122');
+    expect(result!.status).toBe('COMPLETED');
+  });
+
+  it('returns formatted receipt for receiver', async () => {
+    mockPrisma.transaction.findFirst.mockResolvedValue({
+      senderId: 'other-user',
+      receiverId: SENDER_ID,
+      amount: 3000,
+      fee: 0,
+      status: 'COMPLETED',
+      reference: '#WP-2026-CCDD3344',
+      createdAt: new Date('2026-03-02T10:00:00Z'),
+      sender: { name: 'Pedro', waId: '56955555555' },
+      receiver: { name: 'Juan', waId: '56912345678' },
+    });
+
+    const result = await svc.getTransactionByReference('#WP-2026-CCDD3344', SENDER_ID);
+
+    expect(result).not.toBeNull();
+    expect(result!.direction).toBe('Recibido');
+    expect(result!.otherParty).toBe('Pedro');
+  });
+
+  it('returns null when transaction not found', async () => {
+    mockPrisma.transaction.findFirst.mockResolvedValue(null);
+
+    const result = await svc.getTransactionByReference('#WP-NONEXISTENT', SENDER_ID);
+
+    expect(result).toBeNull();
+  });
+
+  it('uses waId fallback when sender has no name', async () => {
+    mockPrisma.transaction.findFirst.mockResolvedValue({
+      senderId: 'other-user',
+      receiverId: SENDER_ID,
+      amount: 1000,
+      fee: 0,
+      status: 'COMPLETED',
+      reference: '#WP-2026-EEFF5566',
+      createdAt: new Date('2026-03-03T08:00:00Z'),
+      sender: { name: null, waId: '56966666666' },
+      receiver: { name: 'Juan', waId: '56912345678' },
+    });
+
+    const result = await svc.getTransactionByReference('#WP-2026-EEFF5566', SENDER_ID);
+
+    expect(result!.otherParty).toBe('56966666666');
+  });
+
+  it('uses waId fallback when receiver has no name (sender view)', async () => {
+    mockPrisma.transaction.findFirst.mockResolvedValue({
+      senderId: SENDER_ID,
+      receiverId: RECEIVER_ID,
+      amount: 2000,
+      fee: 0,
+      status: 'COMPLETED',
+      reference: '#WP-2026-GGHH7788',
+      createdAt: new Date('2026-03-04T09:00:00Z'),
+      sender: { name: 'Juan', waId: '56912345678' },
+      receiver: { name: null, waId: '56977777777' },
+    });
+
+    const result = await svc.getTransactionByReference('#WP-2026-GGHH7788', SENDER_ID);
+
+    expect(result!.direction).toBe('Enviado');
+    expect(result!.otherParty).toBe('56977777777');
   });
 });

@@ -238,6 +238,7 @@ export class BotService {
     if (normalized.startsWith('/cambiarpin')) return 'changepin';
     if (normalized.startsWith('/kyc') || normalized === 'verificar') return 'kyc';
     if (normalized.startsWith('/cancelar') || normalized === 'cancelar') return 'cancel';
+    if (normalized.startsWith('/recibo')) return 'receipt';
 
     return null;
   }
@@ -250,7 +251,7 @@ export class BotService {
   ): Promise<void> {
     switch (command) {
       case 'pay':
-        return this.startPayFlow(from, userId);
+        return this.startPayFlow(from, userId, rawText);
       case 'charge':
         return this.startChargeFlow(from, userId, rawText);
       case 'balance':
@@ -280,6 +281,8 @@ export class BotService {
         await this.wa.sendTextMessage(from, 'Operación cancelada.');
         return this.sendHelp(from, user?.name ?? null);
       }
+      case 'receipt':
+        return this.showReceipt(from, userId, rawText);
     }
   }
 
@@ -287,7 +290,50 @@ export class BotService {
   //  PAY FLOW (Stateful)
   // ═══════════════════════════════════════════════════════
 
-  private async startPayFlow(from: string, userId: string): Promise<void> {
+  private async startPayFlow(from: string, userId: string, rawText?: string): Promise<void> {
+    // Quick-pay: /pagar 56912345678 5000
+    if (rawText) {
+      const parts = rawText.replace(/\/pagar/i, '').trim().split(/\s+/);
+      const quickPhone = parts[0]?.replace(/[\s\-+]/g, '');
+      const quickAmount = parseInt(parts[1], 10);
+
+      if (quickPhone && /^\d{8,12}$/.test(quickPhone) && !isNaN(quickAmount) && quickAmount >= 100) {
+        const normalizedPhone = quickPhone.startsWith('56') ? quickPhone : `56${quickPhone}`;
+        const receiver = await this.users.getUserByWaId(normalizedPhone);
+
+        if (receiver && receiver.id !== userId) {
+          const balance = await this.wallets.getBalance(userId);
+          await setSession(from, {
+            userId,
+            waId: from,
+            state: 'PAY_CONFIRM',
+            data: {
+              receiverId: receiver.id,
+              receiverName: receiver.name || formatPhone(normalizedPhone),
+              receiverPhone: normalizedPhone,
+              amount: quickAmount,
+            },
+            lastActivity: Date.now(),
+          });
+
+          await this.wa.sendButtonMessage(
+            from,
+            receipt([
+              `Para: ${receiver.name || formatPhone(normalizedPhone)}`,
+              `Monto: ${formatCLP(quickAmount)}`,
+              `Comisión: $0 (P2P gratis)`,
+              `Tu saldo: ${balance.formatted}`,
+            ]),
+            [
+              { id: 'confirm_pay', title: 'Confirmar y pagar' },
+              { id: 'cmd_help', title: 'Cancelar' },
+            ],
+          );
+          return;
+        }
+      }
+    }
+
     await setSession(from, {
       userId,
       waId: from,
@@ -360,15 +406,24 @@ export class BotService {
         session.state = 'PAY_ENTER_AMOUNT';
         await setSession(from, session);
 
-        await this.wa.sendTextMessage(
+        await this.wa.sendButtonMessage(
           from,
-          `Pagar a: ${session.data.receiverName}\n\n¿Cuánto quieres enviar? (en pesos CLP):`,
+          `Pagar a: ${session.data.receiverName}\n\n¿Cuánto quieres enviar?\n(o escribe otro monto en pesos CLP)`,
+          [
+            { id: 'amt_5000', title: '$5.000' },
+            { id: 'amt_10000', title: '$10.000' },
+            { id: 'amt_20000', title: '$20.000' },
+          ],
         );
         return;
       }
 
       case 'PAY_ENTER_AMOUNT': {
-        const amount = parseInt(text.replace(/[$.]/g, ''), 10);
+        // Handle preset amount button clicks (amt_5000)
+        const amtMatch = text.match(/^amt_(\d+)$/);
+        const amount = amtMatch
+          ? parseInt(amtMatch[1], 10)
+          : parseInt(text.replace(/[$.]/g, ''), 10);
         if (isNaN(amount) || amount < 100) {
           await this.wa.sendTextMessage(from, 'Monto inválido. Mínimo $100 CLP. Escribe el monto:');
           return;
@@ -542,7 +597,15 @@ export class BotService {
       data: {},
       lastActivity: Date.now(),
     });
-    await this.wa.sendTextMessage(from, '¿Cuánto quieres cobrar? (en pesos CLP):');
+    await this.wa.sendButtonMessage(
+      from,
+      '¿Cuánto quieres cobrar?\n(o escribe otro monto en pesos CLP)',
+      [
+        { id: 'amt_5000', title: '$5.000' },
+        { id: 'amt_10000', title: '$10.000' },
+        { id: 'amt_20000', title: '$20.000' },
+      ],
+    );
   }
 
   private async handleChargeFlow(
@@ -553,7 +616,10 @@ export class BotService {
   ): Promise<void> {
     switch (session.state as State) {
       case 'CHARGE_ENTER_AMOUNT': {
-        const amount = parseInt(text.replace(/[$.]/g, ''), 10);
+        const amtMatch = text.match(/^amt_(\d+)$/);
+        const amount = amtMatch
+          ? parseInt(amtMatch[1], 10)
+          : parseInt(text.replace(/[$.]/g, ''), 10);
         if (isNaN(amount) || amount < 100 || amount > 50_000_000) {
           await this.wa.sendTextMessage(
             from,
@@ -1025,6 +1091,39 @@ export class BotService {
     // Unknown state — reset
     await deleteSession(from);
     await this.sendHelp(from, null);
+  }
+
+  private async showReceipt(from: string, userId: string, rawText: string): Promise<void> {
+    const ref = rawText.replace(/\/recibo/i, '').trim();
+    if (!ref) {
+      await this.wa.sendTextMessage(
+        from,
+        'Uso: /recibo #WP-2026-AABB1122\n\nEncuentra tu referencia en /historial.',
+      );
+      return;
+    }
+
+    const tx = await this.transactions.getTransactionByReference(ref, userId);
+    if (!tx) {
+      await this.wa.sendTextMessage(from, 'Transacción no encontrada. Verifica la referencia.');
+      return;
+    }
+
+    await this.wa.sendTextMessage(
+      from,
+      [
+        'Comprobante de transacción:',
+        receipt([
+          `Ref: ${tx.reference}`,
+          `Tipo: ${tx.direction}`,
+          `Monto: ${tx.amount}`,
+          `Comisión: ${tx.fee}`,
+          `${tx.direction === 'Enviado' ? 'Para' : 'De'}: ${tx.otherParty}`,
+          `Fecha: ${tx.date}`,
+          `Estado: ${tx.status}`,
+        ]),
+      ].join('\n'),
+    );
   }
 
   private async sendHelp(from: string, name: string | null): Promise<void> {

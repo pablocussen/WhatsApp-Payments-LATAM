@@ -300,6 +300,45 @@ export class TransactionService {
     };
   }
 
+  async getTransactionByReference(
+    reference: string,
+    userId: string,
+  ): Promise<{
+    direction: string;
+    amount: string;
+    otherParty: string;
+    date: string;
+    status: string;
+    reference: string;
+    fee: string;
+  } | null> {
+    const tx = await prisma.transaction.findFirst({
+      where: {
+        reference,
+        OR: [{ senderId: userId }, { receiverId: userId }],
+      },
+      include: {
+        sender: { select: { name: true, waId: true } },
+        receiver: { select: { name: true, waId: true } },
+      },
+    });
+
+    if (!tx) return null;
+
+    const isSender = tx.senderId === userId;
+    return {
+      direction: isSender ? 'Enviado' : 'Recibido',
+      amount: formatCLP(Number(tx.amount)),
+      otherParty: isSender
+        ? tx.receiver.name || tx.receiver.waId
+        : tx.sender.name || tx.sender.waId,
+      date: formatDateCL(tx.createdAt),
+      status: tx.status,
+      reference: tx.reference,
+      fee: formatCLP(Number(tx.fee)),
+    };
+  }
+
   private readonly MAX_PAYMENTS_PER_HOUR = 10;
 
   private async checkUserRateLimit(userId: string): Promise<boolean> {

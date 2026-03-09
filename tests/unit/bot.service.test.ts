@@ -68,6 +68,7 @@ const mockTransactions = {
   getTransactionHistory: jest.fn(),
   getTransactionStats: jest.fn(),
   getRecentRecipients: jest.fn(),
+  getTransactionByReference: jest.fn(),
 };
 
 const mockPaymentLinks = {
@@ -960,9 +961,10 @@ describe('BotService', () => {
         FROM,
         expect.objectContaining({ state: 'CHARGE_ENTER_AMOUNT' }),
       );
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('Cuánto quieres cobrar'),
+        expect.arrayContaining([expect.objectContaining({ id: 'amt_5000' })]),
       );
     });
 
@@ -1629,9 +1631,10 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
         }),
       }),
     );
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('Cuánto quieres enviar'),
+      expect.arrayContaining([expect.objectContaining({ id: 'amt_5000' })]),
     );
   });
 
@@ -1667,6 +1670,229 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
       RECEIVER_WA,
       expect.stringContaining('Fecha:'),
       expect.any(Array),
+    );
+  });
+
+  // ── Quick-pay shortcut ──────────────────────────────────
+
+  it('quick-pay: "/pagar 56987654321 5000" skips to PAY_CONFIRM', async () => {
+    mockUsers.getUserByWaId
+      .mockResolvedValueOnce(mkUser()) // registered check
+      .mockResolvedValueOnce(mkUser({ id: RECEIVER_ID, name: 'Maria', waId: RECEIVER_WA })); // receiver lookup
+    mockWallets.getBalance.mockResolvedValue({ formatted: '$50.000 CLP', raw: 50000 });
+
+    await bot.handleMessage(FROM, '/pagar 56987654321 5000');
+
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({
+        state: 'PAY_CONFIRM',
+        data: expect.objectContaining({
+          receiverId: RECEIVER_ID,
+          amount: 5000,
+        }),
+      }),
+    );
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('$5.000'),
+      expect.arrayContaining([expect.objectContaining({ id: 'confirm_pay' })]),
+    );
+  });
+
+  it('quick-pay: receiver not found → falls back to normal flow', async () => {
+    mockUsers.getUserByWaId
+      .mockResolvedValueOnce(mkUser()) // registered check
+      .mockResolvedValueOnce(null); // receiver not found
+
+    await bot.handleMessage(FROM, '/pagar 56999999999 5000');
+
+    // Should fall through to normal startPayFlow (PAY_ENTER_PHONE)
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({ state: 'PAY_ENTER_PHONE' }),
+    );
+  });
+
+  it('quick-pay: self-payment → falls back to normal flow', async () => {
+    mockUsers.getUserByWaId
+      .mockResolvedValueOnce(mkUser()) // registered check
+      .mockResolvedValueOnce(mkUser({ id: USER_ID })); // receiver = self
+
+    await bot.handleMessage(FROM, '/pagar 56987654321 5000');
+
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({ state: 'PAY_ENTER_PHONE' }),
+    );
+  });
+
+  it('quick-pay: invalid amount → falls back to normal flow', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+
+    await bot.handleMessage(FROM, '/pagar 56987654321 abc');
+
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({ state: 'PAY_ENTER_PHONE' }),
+    );
+  });
+
+  // ── Amount quick-select buttons ─────────────────────────
+
+  it('PAY_ENTER_AMOUNT: amt_10000 button → uses 10000 as amount', async () => {
+    mockGetSession.mockResolvedValue(
+      mkSession('PAY_ENTER_AMOUNT', { receiverId: RECEIVER_ID, receiverName: 'Maria', receiverPhone: RECEIVER_WA }),
+    );
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockWallets.getBalance.mockResolvedValue({ formatted: '$50.000 CLP', raw: 50000 });
+
+    await bot.handleMessage(FROM, 'amt_10000');
+
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({
+        state: 'PAY_CONFIRM',
+        data: expect.objectContaining({ amount: 10000 }),
+      }),
+    );
+  });
+
+  it('CHARGE_ENTER_AMOUNT: amt_5000 button → uses 5000 as amount', async () => {
+    mockGetSession.mockResolvedValue(mkSession('CHARGE_ENTER_AMOUNT'));
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+
+    await bot.handleMessage(FROM, 'amt_5000');
+
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({
+        state: 'CHARGE_ENTER_DESCRIPTION',
+        data: expect.objectContaining({ amount: 5000 }),
+      }),
+    );
+  });
+
+  it('startChargeFlow: interactive shows amount buttons', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+
+    await bot.handleMessage(FROM, '/cobrar');
+
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Cuánto quieres cobrar'),
+      expect.arrayContaining([expect.objectContaining({ id: 'amt_5000' })]),
+    );
+  });
+
+  // ── /recibo command ─────────────────────────────────────
+
+  it('/recibo with valid reference → shows transaction receipt', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockTransactions.getTransactionByReference.mockResolvedValue({
+      direction: 'Enviado',
+      amount: '$5.000 CLP',
+      otherParty: 'Maria',
+      date: '01/03/2026 12:00',
+      status: 'COMPLETED',
+      reference: '#WP-2026-AABB1122',
+      fee: '$0 CLP',
+    });
+
+    await bot.handleMessage(FROM, '/recibo #WP-2026-AABB1122');
+
+    expect(mockTransactions.getTransactionByReference).toHaveBeenCalledWith(
+      '#WP-2026-AABB1122',
+      USER_ID,
+    );
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Comprobante'),
+    );
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('#WP-2026-AABB1122'),
+    );
+  });
+
+  it('/recibo with no reference → shows usage hint', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+
+    await bot.handleMessage(FROM, '/recibo');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Uso:'),
+    );
+  });
+
+  it('/recibo with unknown reference → shows not found message', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockTransactions.getTransactionByReference.mockResolvedValue(null);
+
+    await bot.handleMessage(FROM, '/recibo #WP-UNKNOWN');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('no encontrada'),
+    );
+  });
+
+  it('/recibo with "Recibido" direction → shows "De:" label', async () => {
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+    mockTransactions.getTransactionByReference.mockResolvedValue({
+      direction: 'Recibido',
+      amount: '$3.000 CLP',
+      otherParty: 'Pedro',
+      date: '02/03/2026 10:00',
+      status: 'COMPLETED',
+      reference: '#WP-2026-CCDD3344',
+      fee: '$0 CLP',
+    });
+
+    await bot.handleMessage(FROM, '/recibo #WP-2026-CCDD3344');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('De: Pedro'),
+    );
+  });
+
+  it('quick-pay: phone without 56 prefix → normalizes correctly', async () => {
+    mockUsers.getUserByWaId
+      .mockResolvedValueOnce(mkUser()) // registered check
+      .mockResolvedValueOnce(mkUser({ id: RECEIVER_ID, name: 'Maria', waId: '56987654321' })); // receiver
+    mockWallets.getBalance.mockResolvedValue({ formatted: '$50.000 CLP', raw: 50000 });
+
+    await bot.handleMessage(FROM, '/pagar 987654321 5000');
+
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({
+        state: 'PAY_CONFIRM',
+        data: expect.objectContaining({
+          receiverPhone: '56987654321',
+        }),
+      }),
+    );
+  });
+
+  it('quick-pay: receiver with null name → uses formatPhone', async () => {
+    mockUsers.getUserByWaId
+      .mockResolvedValueOnce(mkUser()) // registered check
+      .mockResolvedValueOnce(mkUser({ id: RECEIVER_ID, name: null, waId: '56987654321' })); // receiver
+    mockWallets.getBalance.mockResolvedValue({ formatted: '$50.000 CLP', raw: 50000 });
+
+    await bot.handleMessage(FROM, '/pagar 56987654321 5000');
+
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({
+        state: 'PAY_CONFIRM',
+        data: expect.objectContaining({
+          receiverName: expect.stringContaining('56'),
+        }),
+      }),
     );
   });
 });
