@@ -14,8 +14,10 @@ import userRoutes from './user.routes';
 import paymentRoutes from './payment.routes';
 import merchantRoutes from './merchant.routes';
 import topupRoutes from './topup.routes';
+import { SchedulerService } from '../services/scheduler.service';
 
 const log = createLogger('server');
+const scheduler = new SchedulerService();
 const app = express();
 
 // Trust Google Cloud Run / load balancer proxies so req.ip reflects the real
@@ -182,6 +184,9 @@ async function start() {
     await connectRedis();
     log.info('Redis connected');
 
+    // Start scheduled jobs (link cleanup, stale tx pruning)
+    scheduler.start();
+
     // Start HTTP server
     const server = app.listen(env.PORT, () => {
       log.info(`WhatPay API running`, {
@@ -200,6 +205,7 @@ async function start() {
     // then disconnect from DB and Redis cleanly.
     const shutdown = (signal: string) => {
       log.info(`Received ${signal} — shutting down gracefully`);
+      scheduler.stop();
       server.close(async () => {
         try {
           await prisma.$disconnect();
