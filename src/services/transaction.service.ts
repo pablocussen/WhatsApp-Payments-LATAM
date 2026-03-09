@@ -6,6 +6,7 @@ import { formatCLP, formatDateCL, divider } from '../utils/format';
 import { WalletService, InsufficientFundsError } from './wallet.service';
 import { FraudService } from './fraud.service';
 import { audit } from './audit.service';
+import { cache } from './cache.service';
 
 const log = createLogger('transaction-service');
 
@@ -191,6 +192,10 @@ export class TransactionService {
       // Record for per-user rate limit
       await this.recordUserPayment(senderId);
 
+      // Invalidate caches
+      await cache.invalidateBalance(senderId, receiverId);
+      await cache.invalidateRecipients(senderId);
+
       log.info('Payment completed', {
         transactionId: result.transactionId,
         reference,
@@ -239,6 +244,9 @@ export class TransactionService {
     userId: string,
     limit = 3,
   ): Promise<Array<{ id: string; name: string | null; waId: string }>> {
+    const cached = await cache.getRecipients(userId);
+    if (cached) return JSON.parse(cached);
+
     const recent = await prisma.transaction.findMany({
       where: { senderId: userId, status: 'COMPLETED' },
       orderBy: { createdAt: 'desc' },
@@ -255,6 +263,7 @@ export class TransactionService {
         unique.push(tx.receiver);
       }
     }
+    await cache.setRecipients(userId, JSON.stringify(unique));
     return unique;
   }
 

@@ -25,6 +25,11 @@ const mockPrisma = {
 
 jest.mock('../../src/config/database', () => ({
   prisma: mockPrisma,
+  getRedis: jest.fn().mockReturnValue({
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue('OK'),
+    del: jest.fn().mockResolvedValue(1),
+  }),
 }));
 
 import { WalletService, InsufficientFundsError } from '../../src/services/wallet.service';

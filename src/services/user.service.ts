@@ -4,6 +4,7 @@ import { createLogger } from '../config/logger';
 import { hashPin, verifyPinHash, validateRut, cleanRut, hmacHash, encrypt } from '../utils/crypto';
 import { isSecurePin } from '../middleware/auth.middleware';
 import { audit } from './audit.service';
+import { cache } from './cache.service';
 
 const log = createLogger('user-service');
 
@@ -116,6 +117,9 @@ export class UserService {
   }
 
   async getUserByWaId(waId: string): Promise<UserProfile | null> {
+    const cached = await cache.getUser('waId', waId);
+    if (cached) return JSON.parse(cached);
+
     const user = await prisma.user.findUnique({
       where: { waId },
       select: {
@@ -127,10 +131,14 @@ export class UserService {
         createdAt: true,
       },
     });
+    if (user) await cache.setUser(user.id, user.waId, JSON.stringify(user));
     return user;
   }
 
   async getUserById(id: string): Promise<UserProfile | null> {
+    const cached = await cache.getUser('id', id);
+    if (cached) return JSON.parse(cached);
+
     const user = await prisma.user.findUnique({
       where: { id },
       select: {
@@ -142,6 +150,7 @@ export class UserService {
         createdAt: true,
       },
     });
+    if (user) await cache.setUser(user.id, user.waId, JSON.stringify(user));
     return user;
   }
 
@@ -240,12 +249,14 @@ export class UserService {
   }
 
   async updateKycLevel(userId: string, level: 'BASIC' | 'INTERMEDIATE' | 'FULL'): Promise<void> {
-    await prisma.user.update({
+    const user = await prisma.user.update({
       where: { id: userId },
       data: { kycLevel: level },
+      select: { waId: true },
     });
     log.info('KYC level updated', { userId, level });
     audit.log({ eventType: 'KYC_UPGRADED', actorType: 'USER', targetUserId: userId, metadata: { level } });
+    await cache.invalidateUser(userId, user.waId);
   }
 
   async getUserCount(): Promise<number> {

@@ -2,6 +2,7 @@ import { prisma } from '../config/database';
 import type { Prisma } from '@prisma/client';
 import { createLogger } from '../config/logger';
 import { formatCLP } from '../utils/format';
+import { cache } from './cache.service';
 
 const log = createLogger('wallet-service');
 
@@ -25,6 +26,12 @@ export interface WalletMovement {
 
 export class WalletService {
   async getBalance(userId: string): Promise<WalletBalance> {
+    // Check cache first
+    const cached = await cache.getBalance(userId);
+    if (cached != null) {
+      return { balance: cached, formatted: formatCLP(cached), currency: 'CLP' };
+    }
+
     const wallet = await prisma.wallet.findUnique({
       where: { userId },
     });
@@ -34,6 +41,7 @@ export class WalletService {
     }
 
     const balance = Number(wallet.balance);
+    await cache.setBalance(userId, balance);
     return {
       balance,
       formatted: formatCLP(balance),
@@ -50,6 +58,7 @@ export class WalletService {
     });
 
     log.info('Wallet credited', { userId, amount, description });
+    await cache.invalidateBalance(userId);
 
     const newBalance = Number(wallet.balance);
     return {
@@ -78,6 +87,7 @@ export class WalletService {
     });
 
     log.info('Wallet debited', { userId, amount, description });
+    await cache.invalidateBalance(userId);
 
     const newBalance = Number(wallet.balance);
     return {
@@ -122,6 +132,7 @@ export class WalletService {
     });
 
     log.info('Wallet transfer', { senderId, receiverId, amount, description });
+    await cache.invalidateBalance(senderId, receiverId);
 
     return {
       senderBalance: {
@@ -178,6 +189,7 @@ export class WalletService {
     }
 
     log.info('Wallet topped up', { userId, amount, method, externalRef });
+    await cache.invalidateBalance(userId);
 
     const newBalance = Number(wallet.balance);
     return {

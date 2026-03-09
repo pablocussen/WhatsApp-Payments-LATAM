@@ -39,6 +39,8 @@ jest.mock('../../src/config/database', () => ({
   prisma: mockPrisma,
   getRedis: jest.fn().mockReturnValue({
     get: (...args: unknown[]) => mockRedisGet(...args),
+    set: jest.fn().mockResolvedValue('OK'),
+    del: jest.fn().mockResolvedValue(1),
     multi: () => mockRedisMulti(),
   }),
 }));
@@ -564,6 +566,7 @@ describe('TransactionService.getRecentRecipients', () => {
   beforeEach(() => {
     svc = new TransactionService();
     jest.clearAllMocks();
+    mockRedisGet.mockResolvedValue(null); // cache miss
   });
 
   it('returns deduplicated recent recipients', async () => {

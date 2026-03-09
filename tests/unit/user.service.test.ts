@@ -24,6 +24,11 @@ const mockPrisma = {
 
 jest.mock('../../src/config/database', () => ({
   prisma: mockPrisma,
+  getRedis: jest.fn().mockReturnValue({
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue('OK'),
+    del: jest.fn().mockResolvedValue(1),
+  }),
 }));
 
 import { UserService } from '../../src/services/user.service';
@@ -400,7 +405,7 @@ describe('UserService.updateKycLevel', () => {
   beforeEach(() => {
     svc = new UserService('0'.repeat(64));
     jest.clearAllMocks();
-    mockPrisma.user.update.mockResolvedValue({});
+    mockPrisma.user.update.mockResolvedValue({ waId: '+56912345678' });
   });
 
   it('updates kycLevel via Prisma', async () => {
@@ -409,6 +414,7 @@ describe('UserService.updateKycLevel', () => {
     expect(mockPrisma.user.update).toHaveBeenCalledWith({
       where: { id: 'uid-001' },
       data: { kycLevel: 'INTERMEDIATE' },
+      select: { waId: true },
     });
   });
 });
