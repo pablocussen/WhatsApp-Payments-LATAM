@@ -5,6 +5,7 @@ import { env } from '../config/environment';
 import { createLogger } from '../config/logger';
 import { asyncHandler } from '../utils/async-handler';
 import { audit } from '../services/audit.service';
+import { WhatsAppService } from '../services/whatsapp.service';
 
 const log = createLogger('admin-api');
 const router = Router();
@@ -228,6 +229,25 @@ router.get(
     });
 
     return res.json(result);
+  }),
+);
+
+// ─── Dead Letter Queue ──────────────────────────────────
+
+router.get(
+  '/dlq',
+  asyncHandler(async (req: Request, res: Response) => {
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const entries = await WhatsAppService.getDLQ(limit);
+    return res.json({ entries, count: entries.length });
+  }),
+);
+
+router.delete(
+  '/dlq',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const count = await WhatsAppService.clearDLQ();
+    return res.json({ message: `Cleared ${count} DLQ entries.`, count });
   }),
 );
 

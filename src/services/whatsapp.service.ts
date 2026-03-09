@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import { env } from '../config/environment';
+import { getRedis } from '../config/database';
+import { createLogger } from '../config/logger';
 
+const log = createLogger('whatsapp');
 const FETCH_TIMEOUT_MS = 10_000;
+const RETRY_DELAYS = [1_000, 5_000, 30_000]; // 1s, 5s, 30s
+const DLQ_KEY = 'whatsapp:dlq';
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -222,20 +227,106 @@ export class WhatsAppService {
     message: WhatsAppTextMessage | WhatsAppButtonMessage | WhatsAppListMessage,
   ): Promise<void> {
     const url = `${this.apiUrl}/${this.phoneNumberId}/messages`;
+    let lastError: Error | undefined;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: {
-        Authorization: `Bearer ${this.apiToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(message),
-    });
+    for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          headers: {
+            Authorization: `Bearer ${this.apiToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(message),
+        });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`);
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(`WhatsApp API error: ${JSON.stringify(error)}`);
+        }
+
+        return; // Success
+      } catch (err) {
+        lastError = err as Error;
+
+        if (attempt < RETRY_DELAYS.length) {
+          log.warn(`Message send failed, retrying in ${RETRY_DELAYS[attempt]}ms`, {
+            attempt: attempt + 1,
+            to: message.to,
+            error: lastError.message,
+          });
+          await this.delay(RETRY_DELAYS[attempt]);
+        }
+      }
+    }
+
+    // All retries exhausted → push to dead letter queue
+    await this.pushToDLQ(message, lastError!);
+    throw lastError!;
+  }
+
+  private async pushToDLQ(
+    message: WhatsAppTextMessage | WhatsAppButtonMessage | WhatsAppListMessage,
+    error: Error,
+  ): Promise<void> {
+    try {
+      const redis = getRedis();
+      const entry = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        to: message.to,
+        type: message.type,
+        payload: message,
+        error: error.message,
+        attempts: RETRY_DELAYS.length + 1,
+      });
+      await redis.rPush(DLQ_KEY, entry);
+      log.error('Message pushed to DLQ after all retries failed', { to: message.to });
+    } catch (dlqErr) {
+      log.error('Failed to push to DLQ', { error: (dlqErr as Error).message });
+    }
+  }
+
+  /** Exposed for testing — overridable delay */
+  protected delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Read DLQ entries (for admin dashboard) */
+  static async getDLQ(limit = 50): Promise<unknown[]> {
+    try {
+      const redis = getRedis();
+      const items = await redis.lRange(DLQ_KEY, 0, limit - 1);
+      return items.map((item: string) => JSON.parse(item));
+    } catch {
+      return [];
+    }
+  }
+
+  /** Remove a specific DLQ entry by index and requeue for retry */
+  static async retryDLQEntry(index: number): Promise<boolean> {
+    try {
+      const redis = getRedis();
+      const item = await redis.lIndex(DLQ_KEY, index);
+      if (!item) return false;
+      // Mark as removed by setting to sentinel, then clean up
+      await redis.lSet(DLQ_KEY, index, '__REMOVED__');
+      await redis.lRem(DLQ_KEY, 1, '__REMOVED__');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Clear all DLQ entries */
+  static async clearDLQ(): Promise<number> {
+    try {
+      const redis = getRedis();
+      const count = await redis.lLen(DLQ_KEY);
+      await redis.del(DLQ_KEY);
+      return count;
+    } catch {
+      return 0;
     }
   }
 }

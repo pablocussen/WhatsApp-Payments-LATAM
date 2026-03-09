@@ -1,5 +1,4 @@
 import { prisma } from '../config/database';
-import type { Prisma } from '@prisma/client';
 import { createLogger } from '../config/logger';
 
 const log = createLogger('audit');
@@ -48,7 +47,7 @@ export class AuditService {
           actorId: entry.actorId ?? null,
           targetUserId: entry.targetUserId ?? null,
           amount: entry.amount != null ? BigInt(entry.amount) : null,
-          metadata: (entry.metadata as Prisma.InputJsonValue) ?? undefined,
+          metadata: (entry.metadata ?? undefined) as never,
           status: entry.status ?? 'SUCCESS',
           errorMessage: entry.errorMessage ?? null,
           transactionId: entry.transactionId ?? null,
@@ -89,18 +88,18 @@ export class AuditService {
     ]);
 
     return {
-      events: events.map((e) => ({
-        id: e.id,
-        eventType: e.eventType,
-        actorType: e.actorType,
-        actorId: e.actorId,
-        targetUserId: e.targetUserId,
+      events: events.map((e: Record<string, unknown> & { amount?: bigint | null }) => ({
+        id: e.id as string,
+        eventType: e.eventType as string,
+        actorType: e.actorType as string,
+        actorId: (e.actorId as string) ?? null,
+        targetUserId: (e.targetUserId as string) ?? null,
         amount: e.amount != null ? Number(e.amount) : null,
         metadata: e.metadata,
-        status: e.status,
-        errorMessage: e.errorMessage,
-        transactionId: e.transactionId,
-        createdAt: e.createdAt,
+        status: e.status as string,
+        errorMessage: (e.errorMessage as string) ?? null,
+        transactionId: (e.transactionId as string) ?? null,
+        createdAt: e.createdAt as Date,
       })),
       total,
     };

@@ -28,8 +28,17 @@ jest.mock('../../src/config/environment', () => ({
   },
 }));
 
+const mockRedisLRange = jest.fn().mockResolvedValue([]);
+const mockRedisLLen = jest.fn().mockResolvedValue(0);
+const mockRedisDel = jest.fn().mockResolvedValue(1);
+
 jest.mock('../../src/config/database', () => ({
   prisma: mockPrisma,
+  getRedis: jest.fn().mockReturnValue({
+    lRange: (...args: unknown[]) => mockRedisLRange(...args),
+    lLen: (...args: unknown[]) => mockRedisLLen(...args),
+    del: (...args: unknown[]) => mockRedisDel(...args),
+  }),
 }));
 
 import express from 'express';
@@ -284,5 +293,44 @@ describe('GET /audit', () => {
         where: { targetUserId: 'u1', eventType: 'PAYMENT_COMPLETED' },
       }),
     );
+  });
+});
+
+// ─── GET /dlq ───────────────────────────────────────────
+
+describe('GET /dlq', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns DLQ entries', async () => {
+    const entry = JSON.stringify({ to: '56912345678', error: 'Timeout', timestamp: '2026-03-09T12:00:00Z' });
+    mockRedisLRange.mockResolvedValue([entry]);
+
+    const res = await client.get('/dlq', adminHeaders());
+    expect(res.status).toBe(200);
+
+    const body = res.body as { entries: unknown[]; count: number };
+    expect(body.count).toBe(1);
+    expect(body.entries).toHaveLength(1);
+  });
+
+  it('returns empty when no DLQ entries', async () => {
+    mockRedisLRange.mockResolvedValue([]);
+    const res = await client.get('/dlq', adminHeaders());
+    expect(res.status).toBe(200);
+    expect((res.body as { count: number }).count).toBe(0);
+  });
+});
+
+// ─── DELETE /dlq ────────────────────────────────────────
+
+describe('DELETE /dlq', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('clears all DLQ entries', async () => {
+    mockRedisLLen.mockResolvedValue(3);
+    const res = await client.delete('/dlq', adminHeaders());
+    expect(res.status).toBe(200);
+    expect((res.body as { count: number }).count).toBe(3);
+    expect(mockRedisDel).toHaveBeenCalledWith('whatsapp:dlq');
   });
 });

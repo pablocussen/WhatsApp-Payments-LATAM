@@ -3,6 +3,14 @@
  * global.fetch is mocked so no real HTTP calls are made.
  */
 
+const mockRedisRPush = jest.fn().mockResolvedValue(1);
+const mockRedisLRange = jest.fn().mockResolvedValue([]);
+const mockRedisLLen = jest.fn().mockResolvedValue(0);
+const mockRedisDEL = jest.fn().mockResolvedValue(1);
+const mockRedisLIndex = jest.fn().mockResolvedValue(null);
+const mockRedisLSet = jest.fn().mockResolvedValue('OK');
+const mockRedisLRem = jest.fn().mockResolvedValue(1);
+
 jest.mock('../../src/config/environment', () => ({
   env: {
     WHATSAPP_API_URL: 'https://graph.facebook.com/v18.0',
@@ -12,7 +20,26 @@ jest.mock('../../src/config/environment', () => ({
   },
 }));
 
+jest.mock('../../src/config/database', () => ({
+  getRedis: jest.fn().mockReturnValue({
+    rPush: (...args: unknown[]) => mockRedisRPush(...args),
+    lRange: (...args: unknown[]) => mockRedisLRange(...args),
+    lLen: (...args: unknown[]) => mockRedisLLen(...args),
+    del: (...args: unknown[]) => mockRedisDEL(...args),
+    lIndex: (...args: unknown[]) => mockRedisLIndex(...args),
+    lSet: (...args: unknown[]) => mockRedisLSet(...args),
+    lRem: (...args: unknown[]) => mockRedisLRem(...args),
+  }),
+}));
+
 import { WhatsAppService } from '../../src/services/whatsapp.service';
+
+// Subclass that skips retry delays for fast tests
+class FastWhatsAppService extends WhatsAppService {
+  protected delay(): Promise<void> {
+    return Promise.resolve();
+  }
+}
 
 // ─── Fetch Mock ──────────────────────────────────────────
 
@@ -38,12 +65,13 @@ function lastCallBody() {
 // ─── Tests ───────────────────────────────────────────────
 
 describe('WhatsAppService — sendTextMessage', () => {
-  let svc: WhatsAppService;
+  let svc: FastWhatsAppService;
 
   beforeEach(() => {
-    svc = new WhatsAppService();
+    svc = new FastWhatsAppService();
     mockFetch.mockReset();
     mockFetch.mockImplementation(okResponse);
+    mockRedisRPush.mockClear();
   });
 
   it('POSTs to the correct Messages endpoint', async () => {
@@ -70,17 +98,31 @@ describe('WhatsAppService — sendTextMessage', () => {
     expect(body.text.body).toBe('Test body');
   });
 
-  it('throws on API error response', async () => {
+  it('throws after all retries fail and pushes to DLQ', async () => {
     mockFetch.mockImplementation(() => errorResponse({ error: { message: 'Invalid token' } }));
     await expect(svc.sendTextMessage('56912345678', 'x')).rejects.toThrow('WhatsApp API error');
+    // 1 initial + 3 retries = 4 calls
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    // Should push to DLQ
+    expect(mockRedisRPush).toHaveBeenCalledWith('whatsapp:dlq', expect.any(String));
+  });
+
+  it('retries and succeeds on second attempt', async () => {
+    mockFetch
+      .mockImplementationOnce(() => errorResponse({ error: { message: 'Rate limited' } }))
+      .mockImplementationOnce(okResponse);
+
+    await svc.sendTextMessage('56912345678', 'Retry test');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockRedisRPush).not.toHaveBeenCalled();
   });
 });
 
 describe('WhatsAppService — sendButtonMessage', () => {
-  let svc: WhatsAppService;
+  let svc: FastWhatsAppService;
 
   beforeEach(() => {
-    svc = new WhatsAppService();
+    svc = new FastWhatsAppService();
     mockFetch.mockReset();
     mockFetch.mockImplementation(okResponse);
   });
@@ -113,10 +155,10 @@ describe('WhatsAppService — sendButtonMessage', () => {
 });
 
 describe('WhatsAppService — sendListMessage', () => {
-  let svc: WhatsAppService;
+  let svc: FastWhatsAppService;
 
   beforeEach(() => {
-    svc = new WhatsAppService();
+    svc = new FastWhatsAppService();
     mockFetch.mockReset();
     mockFetch.mockImplementation(okResponse);
   });
@@ -165,10 +207,10 @@ describe('WhatsAppService — sendListMessage', () => {
 });
 
 describe('WhatsAppService — sendPaymentConfirmation', () => {
-  let svc: WhatsAppService;
+  let svc: FastWhatsAppService;
 
   beforeEach(() => {
-    svc = new WhatsAppService();
+    svc = new FastWhatsAppService();
     mockFetch.mockReset();
     mockFetch.mockImplementation(okResponse);
   });
@@ -190,5 +232,76 @@ describe('WhatsAppService — sendPaymentConfirmation', () => {
     await svc.sendPaymentConfirmation('56987654321', 1_000, 'Pedro', '#ref');
     const body = lastCallBody();
     expect(body.to).toBe('56987654321');
+  });
+});
+
+// ─── DLQ Static Methods ─────────────────────────────────
+
+describe('WhatsAppService — DLQ operations', () => {
+  beforeEach(() => {
+    mockRedisLRange.mockClear();
+    mockRedisLLen.mockClear();
+    mockRedisDEL.mockClear();
+    mockRedisLIndex.mockClear();
+    mockRedisLSet.mockClear();
+    mockRedisLRem.mockClear();
+  });
+
+  it('getDLQ returns parsed entries from Redis', async () => {
+    const dlqEntry = JSON.stringify({ to: '56912345678', error: 'Timeout' });
+    mockRedisLRange.mockResolvedValue([dlqEntry]);
+
+    const result = await WhatsAppService.getDLQ();
+    expect(result).toHaveLength(1);
+    expect((result[0] as { to: string }).to).toBe('56912345678');
+    expect(mockRedisLRange).toHaveBeenCalledWith('whatsapp:dlq', 0, 49);
+  });
+
+  it('getDLQ returns empty array on Redis error', async () => {
+    mockRedisLRange.mockRejectedValue(new Error('Redis down'));
+    const result = await WhatsAppService.getDLQ();
+    expect(result).toEqual([]);
+  });
+
+  it('clearDLQ deletes the DLQ key and returns count', async () => {
+    mockRedisLLen.mockResolvedValue(5);
+    const count = await WhatsAppService.clearDLQ();
+    expect(count).toBe(5);
+    expect(mockRedisDEL).toHaveBeenCalledWith('whatsapp:dlq');
+  });
+
+  it('clearDLQ returns 0 on Redis error', async () => {
+    mockRedisLLen.mockRejectedValue(new Error('Redis down'));
+    const count = await WhatsAppService.clearDLQ();
+    expect(count).toBe(0);
+  });
+
+  it('retryDLQEntry removes entry by index', async () => {
+    mockRedisLIndex.mockResolvedValue(JSON.stringify({ to: '56912345678' }));
+    const result = await WhatsAppService.retryDLQEntry(0);
+    expect(result).toBe(true);
+    expect(mockRedisLSet).toHaveBeenCalledWith('whatsapp:dlq', 0, '__REMOVED__');
+    expect(mockRedisLRem).toHaveBeenCalledWith('whatsapp:dlq', 1, '__REMOVED__');
+  });
+
+  it('retryDLQEntry returns false when entry not found', async () => {
+    mockRedisLIndex.mockResolvedValue(null);
+    const result = await WhatsAppService.retryDLQEntry(99);
+    expect(result).toBe(false);
+  });
+
+  it('retryDLQEntry returns false on Redis error', async () => {
+    mockRedisLIndex.mockRejectedValue(new Error('Redis down'));
+    const result = await WhatsAppService.retryDLQEntry(0);
+    expect(result).toBe(false);
+  });
+
+  it('DLQ push handles Redis failure gracefully', async () => {
+    mockRedisRPush.mockRejectedValue(new Error('Redis down'));
+    const svc = new FastWhatsAppService();
+    mockFetch.mockImplementation(() => errorResponse({ error: { message: 'API down' } }));
+
+    // Should still throw the original error, not the DLQ error
+    await expect(svc.sendTextMessage('56912345678', 'test')).rejects.toThrow('WhatsApp API error');
   });
 });

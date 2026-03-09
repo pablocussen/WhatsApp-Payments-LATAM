@@ -22,6 +22,14 @@ jest.mock('../../src/config/environment', () => ({
   loadEnvironment: jest.fn(),
 }));
 
+jest.mock('../../src/config/database', () => ({
+  prisma: {},
+  getRedis: jest.fn().mockReturnValue({
+    rPush: jest.fn(), lRange: jest.fn(), lLen: jest.fn(), del: jest.fn(),
+    lIndex: jest.fn(), lSet: jest.fn(), lRem: jest.fn(),
+  }),
+}));
+
 import { WhatsAppService } from '../../src/services/whatsapp.service';
 import { isSecurePin, verifyPin } from '../../src/middleware/auth.middleware';
 import { generateOTP, generateReference, validateRut, encrypt, decrypt } from '../../src/utils/crypto';

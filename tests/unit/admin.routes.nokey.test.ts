@@ -9,6 +9,7 @@ jest.mock('../../src/config/environment', () => ({
 
 jest.mock('../../src/config/database', () => ({
   prisma: { user: { findMany: jest.fn(), count: jest.fn() }, auditEvent: { create: jest.fn().mockResolvedValue({}) } },
+  getRedis: jest.fn().mockReturnValue({ lRange: jest.fn(), lLen: jest.fn(), del: jest.fn() }),
 }));
 
 import express from 'express';
