@@ -264,7 +264,7 @@ describe('TransactionService.processP2PPayment', () => {
       const result = await svc.processP2PPayment(baseReq);
       expect(result.success).toBe(true);
       expect(result.transactionId).toBe('tx-uuid');
-      expect(result.reference).toMatch(/^#WP-\d{4}-[A-Z0-9]{8}$/);
+      expect(result.reference).toMatch(/^#WP-\d{4}-[A-Z0-9]{16}$/);
       expect(result.senderBalance).toMatch(/\$/); // formatted CLP
     });
 

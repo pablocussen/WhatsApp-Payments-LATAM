@@ -475,11 +475,17 @@ describe('BotService', () => {
       await bot.handleMessage(FROM, '483920');
 
       expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('enviado'));
+      // Sender receipt (button message with "Otro pago" action)
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+        FROM,
+        expect.stringContaining('enviado'),
+        expect.arrayContaining([expect.objectContaining({ id: 'cmd_pay' })]),
+      );
+      // Receiver notification (with "Devolver pago" action)
       expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         RECEIVER_WA,
         expect.stringContaining('pago'),
-        expect.any(Array),
+        expect.arrayContaining([expect.objectContaining({ id: 'cmd_pay' })]),
       );
     });
   });
@@ -1660,10 +1666,11 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
 
     await bot.handleMessage(FROM, '483920');
 
-    // Sender receipt includes Fecha
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    // Sender receipt includes Fecha (button message with actions)
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('Fecha:'),
+      expect.any(Array),
     );
     // Receiver notification includes Fecha
     expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(

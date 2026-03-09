@@ -21,9 +21,8 @@ const config = {
   coverageReporters: ['text', 'lcov', 'html'],
   coverageDirectory: 'coverage',
   coverageProvider: 'v8',
-  // Run serially to avoid SIGTERM on resource-constrained environments
-  // (many test suites with HTTP servers + bcrypt run in parallel cause OOM)
-  runInBand: true,
+  // maxWorkers=1 runs serially to avoid OOM on resource-constrained environments
+  maxWorkers: 1,
   verbose: true,
 };
 

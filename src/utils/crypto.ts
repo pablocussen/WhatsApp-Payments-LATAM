@@ -104,7 +104,7 @@ export function generateShortCode(length = 6): string {
 
 export function generateReference(): string {
   const year = new Date().getFullYear();
-  const hex = randomBytes(4).toString('hex').toUpperCase();
+  const hex = randomBytes(8).toString('hex').toUpperCase();
   return `#WP-${year}-${hex}`;
 }
 

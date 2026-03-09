@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto';
+import { generateReference } from '../utils/crypto';
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -22,9 +23,7 @@ const FEE_TABLE = {
 
 export class PaymentService {
   generateReference(): string {
-    const year = new Date().getFullYear();
-    const random = randomBytes(4).toString('hex').toUpperCase();
-    return `#WP-${year}-${random}`;
+    return generateReference();
   }
 
   calculateFee(amount: number, method: keyof typeof FEE_TABLE, isP2P: boolean): FeeCalculation {

@@ -496,8 +496,8 @@ export class BotService {
 
         const now = formatDateCL(new Date());
 
-        // Notify sender
-        await this.wa.sendTextMessage(
+        // Notify sender with smart action buttons
+        await this.wa.sendButtonMessage(
           from,
           [
             'Pago enviado!',
@@ -508,9 +508,13 @@ export class BotService {
               `Saldo: ${payment.senderBalance}`,
             ]),
           ].join('\n'),
+          [
+            { id: 'cmd_pay', title: 'Otro pago' },
+            { id: 'cmd_balance', title: 'Ver saldo' },
+          ],
         );
 
-        // Notify receiver
+        // Notify receiver with reference for receipts
         const sender = await this.users.getUserByWaId(from);
         await this.wa.sendButtonMessage(
           sd(session.data, 'receiverPhone'),
@@ -524,7 +528,7 @@ export class BotService {
           ].join('\n'),
           [
             { id: 'cmd_balance', title: 'Ver saldo' },
-            { id: 'cmd_history', title: 'Historial' },
+            { id: 'cmd_pay', title: 'Devolver pago' },
           ],
         );
 
@@ -701,66 +705,47 @@ export class BotService {
           return;
         }
 
-        // User typed a phone number directly
-        const phone = text.replace(/[\s\-+]/g, '');
-        const normalizedPhone = phone.startsWith('56') ? phone : `56${phone}`;
-
-        if (!/^\d{10,12}$/.test(normalizedPhone)) {
-          await this.wa.sendTextMessage(
-            from,
-            'Número inválido. Escribe un número chileno (ej: +56912345678):',
-          );
-          return;
-        }
-
-        const merchant = await this.users.getUserByWaId(from);
-        await this.wa.sendTextMessage(
-          normalizedPhone,
-          [
-            `${merchant?.name || 'Alguien'} te envió un cobro:`,
-            receipt([
-              `Monto: ${formatCLP(sdn(session.data, 'linkAmount'))}`,
-              `Concepto: ${sd(session.data, 'linkDescription')}`,
-              `Pagar: ${sd(session.data, 'linkUrl')}`,
-            ]),
-          ].join('\n'),
-        );
-
-        await deleteSession(from);
-        await this.wa.sendTextMessage(from, `Cobro enviado a ${formatPhone(normalizedPhone)}.`);
-        return;
+        // User typed a phone number directly — validate and send
+        return this.sendChargeToPhone(from, text, session);
       }
 
       case 'CHARGE_ENTER_PHONE': {
-        const phone = text.replace(/[\s\-+]/g, '');
-        const normalizedPhone = phone.startsWith('56') ? phone : `56${phone}`;
-
-        if (!/^\d{10,12}$/.test(normalizedPhone)) {
-          await this.wa.sendTextMessage(
-            from,
-            'Número inválido. Escribe un número chileno (ej: +56912345678):',
-          );
-          return;
-        }
-
-        const merchant = await this.users.getUserByWaId(from);
-        await this.wa.sendTextMessage(
-          normalizedPhone,
-          [
-            `${merchant?.name || 'Alguien'} te envió un cobro:`,
-            receipt([
-              `Monto: ${formatCLP(sdn(session.data, 'linkAmount'))}`,
-              `Concepto: ${sd(session.data, 'linkDescription')}`,
-              `Pagar: ${sd(session.data, 'linkUrl')}`,
-            ]),
-          ].join('\n'),
-        );
-
-        await deleteSession(from);
-        await this.wa.sendTextMessage(from, `Cobro enviado a ${formatPhone(normalizedPhone)}.`);
-        return;
+        return this.sendChargeToPhone(from, text, session);
       }
     }
+  }
+
+  private async sendChargeToPhone(
+    from: string,
+    text: string,
+    session: ConversationSession,
+  ): Promise<void> {
+    const phone = text.replace(/[\s\-+]/g, '');
+    const normalizedPhone = phone.startsWith('56') ? phone : `56${phone}`;
+
+    if (!/^\d{10,12}$/.test(normalizedPhone)) {
+      await this.wa.sendTextMessage(
+        from,
+        'Número inválido. Escribe un número chileno (ej: +56912345678):',
+      );
+      return;
+    }
+
+    const merchant = await this.users.getUserByWaId(from);
+    await this.wa.sendTextMessage(
+      normalizedPhone,
+      [
+        `${merchant?.name || 'Alguien'} te envió un cobro:`,
+        receipt([
+          `Monto: ${formatCLP(sdn(session.data, 'linkAmount'))}`,
+          `Concepto: ${sd(session.data, 'linkDescription')}`,
+          `Pagar: ${sd(session.data, 'linkUrl')}`,
+        ]),
+      ].join('\n'),
+    );
+
+    await deleteSession(from);
+    await this.wa.sendTextMessage(from, `Cobro enviado a ${formatPhone(normalizedPhone)}.`);
   }
 
   // ═══════════════════════════════════════════════════════
@@ -1148,6 +1133,7 @@ export class BotService {
             { id: 'cmd_profile', title: 'Mi perfil', description: 'Tu cuenta y límites' },
             { id: 'cmd_kyc', title: 'Subir nivel', description: 'Aumenta tus límites de pago' },
             { id: 'cmd_changepin', title: 'Cambiar PIN', description: 'Actualiza tu PIN de seguridad' },
+            { id: 'cmd_receipt', title: 'Comprobante', description: 'Busca un recibo por referencia' },
           ],
         },
         {

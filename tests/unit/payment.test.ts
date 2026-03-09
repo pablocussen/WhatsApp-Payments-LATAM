@@ -67,7 +67,7 @@ describe('Reference Generation', () => {
 
   it('references have correct format', () => {
     const ref = service.generateReference();
-    expect(ref).toMatch(/^#WP-\d{4}-[A-F0-9]{8}$/);
+    expect(ref).toMatch(/^#WP-\d{4}-[A-F0-9]{16}$/);
   });
 });
 
