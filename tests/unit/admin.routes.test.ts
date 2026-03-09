@@ -420,3 +420,88 @@ describe('GET /metrics', () => {
     expect(body.byMethod[1].fees).toBe(5_000);
   });
 });
+
+// ─── GET /transactions/export ──────────────────────────
+
+describe('GET /transactions/export', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns CSV with correct headers and rows', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([
+      {
+        reference: '#WP-2026-ABCD',
+        amount: 10_000,
+        fee: 150,
+        status: 'COMPLETED',
+        paymentMethod: 'WALLET',
+        description: 'Pago P2P',
+        createdAt: new Date('2026-03-09T12:00:00Z'),
+        completedAt: new Date('2026-03-09T12:00:01Z'),
+        sender: { waId: '56911111111', name: 'Ana' },
+        receiver: { waId: '56922222222', name: 'Pedro' },
+      },
+    ]);
+
+    const res = await client.get('/transactions/export', adminHeaders());
+    expect(res.status).toBe(200);
+
+    const csv = res.body as string;
+    expect(typeof csv).toBe('string');
+    const lines = csv.split('\n');
+    expect(lines[0]).toContain('reference,amount,fee,status');
+    expect(lines[1]).toContain('#WP-2026-ABCD');
+    expect(lines[1]).toContain('10000');
+    expect(lines[1]).toContain('WALLET');
+  });
+
+  it('returns empty CSV (header only) when no transactions', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([]);
+
+    const res = await client.get('/transactions/export', adminHeaders());
+    expect(res.status).toBe(200);
+
+    const csv = res.body as string;
+    const lines = csv.split('\n');
+    expect(lines).toHaveLength(1); // header only
+  });
+
+  it('passes date filters to Prisma query', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([]);
+
+    await client.get('/transactions/export?from=2026-03-01&to=2026-03-09&status=COMPLETED', adminHeaders());
+
+    expect(mockPrisma.transaction.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: 'COMPLETED',
+          createdAt: expect.objectContaining({
+            gte: expect.any(Date),
+            lte: expect.any(Date),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('escapes CSV values with quotes', async () => {
+    mockPrisma.transaction.findMany.mockResolvedValue([
+      {
+        reference: '#REF-001',
+        amount: 5000,
+        fee: 0,
+        status: 'COMPLETED',
+        paymentMethod: 'WALLET',
+        description: 'Has "quotes" and, commas',
+        createdAt: new Date('2026-03-09T12:00:00Z'),
+        completedAt: null,
+        sender: { waId: '56911111111', name: 'O\'Brien' },
+        receiver: { waId: '56922222222', name: null },
+      },
+    ]);
+
+    const res = await client.get('/transactions/export', adminHeaders());
+    const csv = res.body as string;
+    expect(csv).toContain('"Has ""quotes"" and, commas"');
+    expect(csv).toContain('O\'Brien');
+  });
+});

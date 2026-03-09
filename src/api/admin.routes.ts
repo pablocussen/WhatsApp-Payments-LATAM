@@ -304,6 +304,80 @@ router.get(
   }),
 );
 
+// ─── Transaction CSV Export ──────────────────────────────
+
+router.get(
+  '/transactions/export',
+  asyncHandler(async (req: Request, res: Response) => {
+    const status = req.query.status as string | undefined;
+    const from = req.query.from ? new Date(req.query.from as string) : undefined;
+    const to = req.query.to ? new Date(req.query.to as string) : undefined;
+
+    const where: Record<string, unknown> = {};
+    if (status) where.status = status;
+    if (from || to) {
+      where.createdAt = {
+        ...(from ? { gte: from } : {}),
+        ...(to ? { lte: to } : {}),
+      };
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 10_000, // safety cap
+      select: {
+        reference: true,
+        amount: true,
+        fee: true,
+        status: true,
+        paymentMethod: true,
+        description: true,
+        createdAt: true,
+        completedAt: true,
+        sender: { select: { waId: true, name: true } },
+        receiver: { select: { waId: true, name: true } },
+      },
+    });
+
+    const header = 'reference,amount,fee,status,method,sender_phone,sender_name,receiver_phone,receiver_name,description,created_at,completed_at';
+    const rows = transactions.map((tx: {
+      reference: string;
+      amount: number | bigint;
+      fee: number | bigint | null;
+      status: string;
+      paymentMethod: string;
+      description: string | null;
+      createdAt: Date;
+      completedAt: Date | null;
+      sender: { waId: string; name: string | null };
+      receiver: { waId: string; name: string | null };
+    }) => {
+      const esc = (s: string | null) => `"${(s ?? '').replace(/"/g, '""')}"`;
+      return [
+        tx.reference,
+        Number(tx.amount),
+        Number(tx.fee ?? 0),
+        tx.status,
+        tx.paymentMethod,
+        tx.sender.waId,
+        esc(tx.sender.name),
+        tx.receiver.waId,
+        esc(tx.receiver.name),
+        esc(tx.description),
+        tx.createdAt.toISOString(),
+        tx.completedAt?.toISOString() ?? '',
+      ].join(',');
+    });
+
+    const csv = [header, ...rows].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="transactions-${new Date().toISOString().slice(0, 10)}.csv"`);
+    return res.send(csv);
+  }),
+);
+
 // ─── Audit Log ──────────────────────────────────────────
 
 router.get(
