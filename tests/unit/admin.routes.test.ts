@@ -16,9 +16,11 @@ const mockPrisma = {
     findMany: jest.fn(),
     count: jest.fn(),
     aggregate: jest.fn(),
+    groupBy: jest.fn(),
   },
   paymentLink: { count: jest.fn() },
   auditEvent: { create: jest.fn().mockResolvedValue({}), findMany: jest.fn(), count: jest.fn() },
+  $queryRaw: jest.fn(),
 };
 
 jest.mock('../../src/config/environment', () => ({
@@ -332,5 +334,89 @@ describe('DELETE /dlq', () => {
     expect(res.status).toBe(200);
     expect((res.body as { count: number }).count).toBe(3);
     expect(mockRedisDel).toHaveBeenCalledWith('whatsapp:dlq');
+  });
+});
+
+// ─── GET /metrics ──────────────────────────────────────
+
+describe('GET /metrics', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns full metrics breakdown', async () => {
+    mockPrisma.user.count.mockResolvedValue(50);
+    mockPrisma.transaction.groupBy
+      .mockResolvedValueOnce([{ senderId: 'u1' }, { senderId: 'u2' }]) // active users
+      .mockResolvedValueOnce([]); // volume by method
+    mockPrisma.transaction.count.mockResolvedValue(200);
+    mockPrisma.transaction.aggregate.mockResolvedValue({
+      _sum: { amount: BigInt(1_000_000), fee: BigInt(15_000) },
+    });
+    mockPrisma.$queryRaw
+      .mockResolvedValueOnce([{ day: '2026-03-09', count: '5' }])
+      .mockResolvedValueOnce([{ day: '2026-03-09', count: '20', volume: '500000' }]);
+
+    const res = await client.get('/metrics', adminHeaders());
+    expect(res.status).toBe(200);
+
+    const body = res.body as {
+      overview: { totalUsers: number; activeUsers30d: number; totalFees: number };
+      byMethod: { method: string; count: number }[];
+      daily: { signups: { day: string; count: number }[]; transactions: { day: string }[] };
+    };
+    expect(body.overview.totalUsers).toBe(50);
+    expect(body.overview.activeUsers30d).toBe(2);
+    expect(body.overview.totalFees).toBe(15_000);
+    expect(body.daily.signups).toHaveLength(1);
+    expect(body.daily.signups[0].count).toBe(5);
+    expect(body.daily.transactions).toHaveLength(1);
+  });
+
+  it('returns empty daily arrays when no recent activity', async () => {
+    mockPrisma.user.count.mockResolvedValue(0);
+    mockPrisma.transaction.groupBy.mockResolvedValue([]);
+    mockPrisma.transaction.count.mockResolvedValue(0);
+    mockPrisma.transaction.aggregate.mockResolvedValue({ _sum: { amount: null, fee: null } });
+    mockPrisma.$queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const res = await client.get('/metrics', adminHeaders());
+    expect(res.status).toBe(200);
+
+    const body = res.body as {
+      overview: { totalVolume: number; totalFees: number };
+      byMethod: unknown[];
+      daily: { signups: unknown[]; transactions: unknown[] };
+    };
+    expect(body.overview.totalVolume).toBe(0);
+    expect(body.overview.totalFees).toBe(0);
+    expect(body.byMethod).toHaveLength(0);
+    expect(body.daily.signups).toHaveLength(0);
+  });
+
+  it('returns byMethod breakdown with BigInt conversion', async () => {
+    mockPrisma.user.count.mockResolvedValue(10);
+    mockPrisma.transaction.groupBy
+      .mockResolvedValueOnce([{ senderId: 'u1' }])
+      .mockResolvedValueOnce([
+        { paymentMethod: 'WALLET', _sum: { amount: BigInt(800_000), fee: BigInt(0) }, _count: 150 },
+        { paymentMethod: 'WEBPAY_CREDIT', _sum: { amount: BigInt(200_000), fee: BigInt(5_000) }, _count: 50 },
+      ]);
+    mockPrisma.transaction.count.mockResolvedValue(200);
+    mockPrisma.transaction.aggregate.mockResolvedValue({
+      _sum: { amount: BigInt(1_000_000), fee: BigInt(5_000) },
+    });
+    mockPrisma.$queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const res = await client.get('/metrics', adminHeaders());
+    expect(res.status).toBe(200);
+
+    const body = res.body as { byMethod: { method: string; count: number; volume: number; fees: number }[] };
+    expect(body.byMethod).toHaveLength(2);
+    expect(body.byMethod[0].method).toBe('WALLET');
+    expect(body.byMethod[0].volume).toBe(800_000);
+    expect(body.byMethod[1].fees).toBe(5_000);
   });
 });

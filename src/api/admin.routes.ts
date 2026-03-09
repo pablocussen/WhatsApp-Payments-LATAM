@@ -216,6 +216,94 @@ router.get(
   }),
 );
 
+// ─── Metrics ────────────────────────────────────────────
+
+router.get(
+  '/metrics',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [
+      totalUsers,
+      activeUsers30d,
+      totalTxCompleted,
+      volumeAndFees,
+      volumeByMethod,
+      recentSignups,
+      recentTx,
+    ] = await Promise.all([
+      prisma.user.count({ where: { isActive: true } }),
+
+      // Active users = distinct senders in last 30 days
+      prisma.transaction.groupBy({
+        by: ['senderId'],
+        where: { status: 'COMPLETED', createdAt: { gte: thirtyDaysAgo } },
+      }).then((rows: { senderId: string }[]) => rows.length),
+
+      prisma.transaction.count({ where: { status: 'COMPLETED' } }),
+
+      prisma.transaction.aggregate({
+        where: { status: 'COMPLETED' },
+        _sum: { amount: true, fee: true },
+      }),
+
+      // Volume by payment method
+      prisma.transaction.groupBy({
+        by: ['paymentMethod'],
+        where: { status: 'COMPLETED' },
+        _sum: { amount: true, fee: true },
+        _count: true,
+      }),
+
+      // Daily signups (last 7 days)
+      prisma.$queryRaw<{ day: string; count: string }[]>`
+        SELECT DATE(created_at) as day, COUNT(*)::text as count
+        FROM users WHERE created_at >= ${sevenDaysAgo}
+        GROUP BY DATE(created_at) ORDER BY day DESC
+      `,
+
+      // Daily transactions (last 7 days)
+      prisma.$queryRaw<{ day: string; count: string; volume: string }[]>`
+        SELECT DATE(created_at) as day,
+               COUNT(*)::text as count,
+               COALESCE(SUM(amount), 0)::text as volume
+        FROM transactions
+        WHERE status = 'COMPLETED' AND created_at >= ${sevenDaysAgo}
+        GROUP BY DATE(created_at) ORDER BY day DESC
+      `,
+    ]);
+
+    return res.json({
+      overview: {
+        totalUsers,
+        activeUsers30d,
+        totalTransactions: totalTxCompleted,
+        totalVolume: Number(volumeAndFees._sum.amount ?? 0),
+        totalFees: Number(volumeAndFees._sum.fee ?? 0),
+      },
+      byMethod: volumeByMethod.map((row: { paymentMethod: string; _sum: { amount: bigint | null; fee: bigint | null }; _count: number }) => ({
+        method: row.paymentMethod,
+        count: row._count,
+        volume: Number(row._sum.amount ?? 0),
+        fees: Number(row._sum.fee ?? 0),
+      })),
+      daily: {
+        signups: recentSignups.map((r: { day: string; count: string }) => ({
+          day: String(r.day).slice(0, 10),
+          count: Number(r.count),
+        })),
+        transactions: recentTx.map((r: { day: string; count: string; volume: string }) => ({
+          day: String(r.day).slice(0, 10),
+          count: Number(r.count),
+          volume: Number(r.volume),
+        })),
+      },
+    });
+  }),
+);
+
 // ─── Audit Log ──────────────────────────────────────────
 
 router.get(
