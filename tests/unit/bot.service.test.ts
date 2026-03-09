@@ -69,6 +69,7 @@ const mockTransactions = {
   getTransactionStats: jest.fn(),
   getRecentRecipients: jest.fn(),
   getTransactionByReference: jest.fn(),
+  refundTransaction: jest.fn(),
 };
 
 const mockPaymentLinks = {
@@ -1900,6 +1901,237 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
           receiverName: expect.stringContaining('56'),
         }),
       }),
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+//  REFUND FLOW (/devolver)
+// ═══════════════════════════════════════════════════════
+
+describe('refund flow', () => {
+  let bot: BotService;
+
+  beforeEach(() => {
+    bot = new BotService();
+    jest.clearAllMocks();
+    mockGetSession.mockResolvedValue(null);
+    mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+  });
+
+  it('/devolver without ref shows usage', async () => {
+    await bot.handleMessage(FROM, '/devolver');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Uso:'),
+    );
+  });
+
+  it('/devolver with unknown ref shows not found', async () => {
+    mockTransactions.getTransactionByReference.mockResolvedValue(null);
+
+    await bot.handleMessage(FROM, '/devolver #WP-2026-NOTFOUND');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('no encontrada'),
+    );
+  });
+
+  it('/devolver rejects sent payments (only received can be refunded)', async () => {
+    mockTransactions.getTransactionByReference.mockResolvedValue({
+      direction: 'Enviado',
+      amount: '$5.000 CLP',
+      otherParty: 'María',
+      reference: '#WP-2026-REF1',
+      status: 'COMPLETED',
+    });
+
+    await bot.handleMessage(FROM, '/devolver #WP-2026-REF1');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Solo puedes devolver pagos que hayas recibido'),
+    );
+  });
+
+  it('/devolver rejects already reversed transactions', async () => {
+    mockTransactions.getTransactionByReference.mockResolvedValue({
+      direction: 'Recibido',
+      amount: '$5.000 CLP',
+      otherParty: 'Juan',
+      reference: '#WP-2026-REF2',
+      status: 'REVERSED',
+    });
+
+    await bot.handleMessage(FROM, '/devolver #WP-2026-REF2');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('ya fue devuelta'),
+    );
+  });
+
+  it('/devolver with valid received tx shows confirmation buttons', async () => {
+    mockTransactions.getTransactionByReference.mockResolvedValue({
+      direction: 'Recibido',
+      amount: '$5.000 CLP',
+      otherParty: 'Juan',
+      reference: '#WP-2026-REF3',
+      status: 'COMPLETED',
+    });
+
+    await bot.handleMessage(FROM, '/devolver #WP-2026-REF3');
+
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({ state: 'REFUND_CONFIRM' }),
+    );
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Devolver pago'),
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'confirm_refund' }),
+      ]),
+    );
+  });
+
+  it('REFUND_CONFIRM → confirm_refund → asks PIN', async () => {
+    mockGetSession.mockResolvedValue({
+      userId: USER_ID,
+      waId: FROM,
+      state: 'REFUND_CONFIRM',
+      data: { reference: '#WP-2026-REF3', amount: '$5.000 CLP', otherParty: 'Juan' },
+      lastActivity: Date.now(),
+    });
+
+    await bot.handleMessage(FROM, 'confirm_refund', 'confirm_refund');
+
+    expect(mockSetSession).toHaveBeenCalledWith(
+      FROM,
+      expect.objectContaining({ state: 'REFUND_ENTER_PIN' }),
+    );
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('PIN'));
+  });
+
+  it('REFUND_CONFIRM → cancel → deletes session', async () => {
+    mockGetSession.mockResolvedValue({
+      userId: USER_ID,
+      waId: FROM,
+      state: 'REFUND_CONFIRM',
+      data: { reference: '#WP-2026-REF3', amount: '$5.000 CLP', otherParty: 'Juan' },
+      lastActivity: Date.now(),
+    });
+
+    await bot.handleMessage(FROM, 'algo');
+
+    expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('cancelada'));
+  });
+
+  it('REFUND_ENTER_PIN → correct PIN → completes refund', async () => {
+    mockGetSession.mockResolvedValue({
+      userId: USER_ID,
+      waId: FROM,
+      state: 'REFUND_ENTER_PIN',
+      data: { reference: '#WP-2026-REF3', amount: '$5.000 CLP', otherParty: 'Juan' },
+      lastActivity: Date.now(),
+    });
+    mockUsers.verifyUserPin.mockResolvedValue({ success: true, message: 'OK' });
+    mockTransactions.refundTransaction.mockResolvedValue({
+      success: true,
+      refundReference: '#WP-2026-REFUND01',
+    });
+
+    await bot.handleMessage(FROM, '123456');
+
+    expect(mockTransactions.refundTransaction).toHaveBeenCalledWith('#WP-2026-REF3', USER_ID);
+    expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Devolución completada'),
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'cmd_balance' }),
+      ]),
+    );
+  });
+
+  it('REFUND_ENTER_PIN → wrong PIN → shows error', async () => {
+    mockGetSession.mockResolvedValue({
+      userId: USER_ID,
+      waId: FROM,
+      state: 'REFUND_ENTER_PIN',
+      data: { reference: '#WP-2026-REF3', amount: '$5.000 CLP', otherParty: 'Juan' },
+      lastActivity: Date.now(),
+    });
+    mockUsers.verifyUserPin.mockResolvedValue({ success: false, message: 'PIN incorrecto' });
+
+    await bot.handleMessage(FROM, '000000');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, 'PIN incorrecto');
+    expect(mockDeleteSession).not.toHaveBeenCalled();
+  });
+
+  it('REFUND_ENTER_PIN → locked account → deletes session', async () => {
+    mockGetSession.mockResolvedValue({
+      userId: USER_ID,
+      waId: FROM,
+      state: 'REFUND_ENTER_PIN',
+      data: { reference: '#WP-2026-REF3', amount: '$5.000 CLP', otherParty: 'Juan' },
+      lastActivity: Date.now(),
+    });
+    mockUsers.verifyUserPin.mockResolvedValue({
+      success: false,
+      message: 'Cuenta bloqueada',
+      isLocked: true,
+    });
+
+    await bot.handleMessage(FROM, '000000');
+
+    expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, 'Cuenta bloqueada');
+  });
+
+  it('REFUND_ENTER_PIN → refund fails without error message → shows default', async () => {
+    mockGetSession.mockResolvedValue({
+      userId: USER_ID,
+      waId: FROM,
+      state: 'REFUND_ENTER_PIN',
+      data: { reference: '#WP-2026-REF3', amount: '$5.000 CLP', otherParty: 'Juan' },
+      lastActivity: Date.now(),
+    });
+    mockUsers.verifyUserPin.mockResolvedValue({ success: true, message: 'OK' });
+    mockTransactions.refundTransaction.mockResolvedValue({ success: false });
+
+    await bot.handleMessage(FROM, '123456');
+
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      'Error al procesar la devolución.',
+    );
+  });
+
+  it('REFUND_ENTER_PIN → refund fails → shows error', async () => {
+    mockGetSession.mockResolvedValue({
+      userId: USER_ID,
+      waId: FROM,
+      state: 'REFUND_ENTER_PIN',
+      data: { reference: '#WP-2026-REF3', amount: '$5.000 CLP', otherParty: 'Juan' },
+      lastActivity: Date.now(),
+    });
+    mockUsers.verifyUserPin.mockResolvedValue({ success: true, message: 'OK' });
+    mockTransactions.refundTransaction.mockResolvedValue({
+      success: false,
+      error: 'Solo puedes devolver pagos de las últimas 72 horas.',
+    });
+
+    await bot.handleMessage(FROM, '123456');
+
+    expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
+    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('72 horas'),
     );
   });
 });

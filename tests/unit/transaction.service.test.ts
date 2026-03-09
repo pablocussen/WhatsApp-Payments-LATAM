@@ -702,3 +702,139 @@ describe('TransactionService.getTransactionByReference', () => {
     expect(result!.otherParty).toBe('56977777777');
   });
 });
+
+// ─── refundTransaction ──────────────────────────────────
+
+describe('TransactionService.refundTransaction', () => {
+  let svc: TransactionService;
+
+  const ORIGINAL_REF = '#WP-2026-ORIG0001';
+  const completedAt = new Date(Date.now() - 1000 * 60 * 60); // 1 hour ago
+
+  beforeEach(() => {
+    svc = new TransactionService();
+    jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation(
+      async (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
+    );
+  });
+
+  it('successfully refunds a received payment', async () => {
+    mockPrisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-orig',
+      senderId: SENDER_ID,
+      receiverId: RECEIVER_ID,
+      amount: BigInt(5000),
+      status: 'COMPLETED',
+      completedAt,
+    });
+    mockTx.$queryRaw.mockResolvedValue([{ balance: '10000' }]);
+    mockTx.wallet.update.mockResolvedValue({});
+    mockTx.transaction.update.mockResolvedValue({});
+    mockTx.transaction.create.mockResolvedValue({ id: 'tx-refund' });
+
+    const result = await svc.refundTransaction(ORIGINAL_REF, RECEIVER_ID);
+
+    expect(result.success).toBe(true);
+    expect(result.refundReference).toMatch(/^#WP-\d{4}-[A-Z0-9]{16}$/);
+    // Verify wallet debit (receiver) and credit (sender)
+    expect(mockTx.wallet.update).toHaveBeenCalledTimes(2);
+    // Verify original marked as REVERSED
+    expect(mockTx.transaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'tx-orig' }, data: { status: 'REVERSED' } }),
+    );
+  });
+
+  it('rejects refund when transaction not found', async () => {
+    mockPrisma.transaction.findFirst.mockResolvedValue(null);
+
+    const result = await svc.refundTransaction('#WP-NONEXISTENT', RECEIVER_ID);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/no encontrada/i);
+  });
+
+  it('rejects refund when requester is the sender (not receiver)', async () => {
+    mockPrisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-orig',
+      senderId: SENDER_ID,
+      receiverId: RECEIVER_ID,
+      amount: BigInt(5000),
+      status: 'COMPLETED',
+      completedAt,
+    });
+
+    const result = await svc.refundTransaction(ORIGINAL_REF, SENDER_ID);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/solo quien recibió/i);
+  });
+
+  it('rejects refund after 72 hours', async () => {
+    const oldDate = new Date(Date.now() - 1000 * 60 * 60 * 73); // 73 hours ago
+    mockPrisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-orig',
+      senderId: SENDER_ID,
+      receiverId: RECEIVER_ID,
+      amount: BigInt(5000),
+      status: 'COMPLETED',
+      completedAt: oldDate,
+    });
+
+    const result = await svc.refundTransaction(ORIGINAL_REF, RECEIVER_ID);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/72 horas/i);
+  });
+
+  it('rejects refund when receiver wallet row is null', async () => {
+    mockPrisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-orig',
+      senderId: SENDER_ID,
+      receiverId: RECEIVER_ID,
+      amount: BigInt(5000),
+      status: 'COMPLETED',
+      completedAt,
+    });
+    mockTx.$queryRaw.mockResolvedValue([]); // Empty result
+
+    const result = await svc.refundTransaction(ORIGINAL_REF, RECEIVER_ID);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/saldo insuficiente/i);
+  });
+
+  it('rejects refund when receiver has insufficient funds', async () => {
+    mockPrisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-orig',
+      senderId: SENDER_ID,
+      receiverId: RECEIVER_ID,
+      amount: BigInt(5000),
+      status: 'COMPLETED',
+      completedAt,
+    });
+    mockTx.$queryRaw.mockResolvedValue([{ balance: '1000' }]); // Not enough
+
+    const result = await svc.refundTransaction(ORIGINAL_REF, RECEIVER_ID);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/saldo insuficiente/i);
+  });
+
+  it('returns generic error on unexpected DB failure', async () => {
+    mockPrisma.transaction.findFirst.mockResolvedValue({
+      id: 'tx-orig',
+      senderId: SENDER_ID,
+      receiverId: RECEIVER_ID,
+      amount: BigInt(5000),
+      status: 'COMPLETED',
+      completedAt,
+    });
+    mockPrisma.$transaction.mockRejectedValue(new Error('DB crash'));
+
+    const result = await svc.refundTransaction(ORIGINAL_REF, RECEIVER_ID);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/error al procesar/i);
+  });
+});

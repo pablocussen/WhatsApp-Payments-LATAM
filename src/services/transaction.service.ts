@@ -339,6 +339,101 @@ export class TransactionService {
     };
   }
 
+  async refundTransaction(
+    reference: string,
+    requesterId: string,
+  ): Promise<{ success: boolean; error?: string; refundReference?: string }> {
+    // 1. Find the original transaction
+    const original = await prisma.transaction.findFirst({
+      where: {
+        reference,
+        status: 'COMPLETED',
+        OR: [{ senderId: requesterId }, { receiverId: requesterId }],
+      },
+    });
+
+    if (!original) {
+      return { success: false, error: 'Transacción no encontrada o ya fue revertida.' };
+    }
+
+    // 2. Only the receiver (who got the money) can refund
+    if (original.receiverId !== requesterId) {
+      return { success: false, error: 'Solo quien recibió el pago puede devolverlo.' };
+    }
+
+    // 3. Time limit: 72 hours
+    const hoursElapsed =
+      (Date.now() - original.completedAt!.getTime()) / (1000 * 60 * 60);
+    if (hoursElapsed > 72) {
+      return { success: false, error: 'Solo puedes devolver pagos de las últimas 72 horas.' };
+    }
+
+    const amount = Number(original.amount);
+    const refundRef = generateReference();
+
+    // 4. Atomic: debit receiver, credit sender, mark REVERSED, create refund record
+    try {
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        // Lock receiver wallet
+        const [receiverWallet] = await tx.$queryRaw<{ balance: string }[]>`
+          SELECT balance FROM wallets WHERE user_id = ${requesterId}::uuid FOR UPDATE
+        `;
+        if (!receiverWallet || Number(receiverWallet.balance) < amount) {
+          throw new InsufficientFundsError(Number(receiverWallet?.balance ?? 0), amount);
+        }
+
+        // Debit receiver (return money)
+        await tx.wallet.update({
+          where: { userId: requesterId },
+          data: { balance: { decrement: amount } },
+        });
+
+        // Credit original sender
+        await tx.wallet.update({
+          where: { userId: original.senderId },
+          data: { balance: { increment: amount } },
+        });
+
+        // Mark original transaction as REVERSED
+        await tx.transaction.update({
+          where: { id: original.id },
+          data: { status: 'REVERSED' },
+        });
+
+        // Create refund transaction record
+        await tx.transaction.create({
+          data: {
+            senderId: requesterId,
+            receiverId: original.senderId,
+            amount,
+            status: 'COMPLETED',
+            paymentMethod: 'WALLET',
+            description: `Devolución de ${reference}`,
+            reference: refundRef,
+            fee: 0,
+            completedAt: new Date(),
+            metadata: { type: 'REFUND', originalReference: reference },
+          },
+        });
+      });
+
+      log.info('Refund completed', {
+        originalReference: reference,
+        refundReference: refundRef,
+        amount,
+        requesterId,
+      });
+
+      return { success: true, refundReference: refundRef };
+    } catch (err) {
+      if (err instanceof InsufficientFundsError) {
+        return { success: false, error: err.message };
+      }
+      log.error('Refund failed', { error: (err as Error).message, reference });
+      return { success: false, error: 'Error al procesar la devolución.' };
+    }
+  }
+
   private readonly MAX_PAYMENTS_PER_HOUR = 10;
 
   private async checkUserRateLimit(userId: string): Promise<boolean> {

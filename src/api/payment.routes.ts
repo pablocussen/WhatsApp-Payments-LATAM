@@ -118,6 +118,26 @@ router.post(
   }),
 );
 
+// Refund a received payment
+router.post(
+  '/refund',
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const schema = z.object({ reference: z.string().min(1) });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Referencia requerida.' });
+    }
+
+    const result = await transactions.refundTransaction(parsed.data.reference, req.user!.userId);
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    return res.status(201).json(result);
+  }),
+);
+
 // Transaction history
 router.get(
   '/history',

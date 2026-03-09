@@ -44,7 +44,9 @@ type State =
   | 'CHANGE_PIN_CURRENT'
   | 'CHANGE_PIN_NEW'
   | 'CHANGE_PIN_CONFIRM'
-  | 'KYC_CONFIRM';
+  | 'KYC_CONFIRM'
+  | 'REFUND_CONFIRM'
+  | 'REFUND_ENTER_PIN';
 
 // ─── Bot Service (Stateful Conversation Engine) ─────────
 
@@ -239,6 +241,7 @@ export class BotService {
     if (normalized.startsWith('/kyc') || normalized === 'verificar') return 'kyc';
     if (normalized.startsWith('/cancelar') || normalized === 'cancelar') return 'cancel';
     if (normalized.startsWith('/recibo')) return 'receipt';
+    if (normalized.startsWith('/devolver')) return 'refund';
 
     return null;
   }
@@ -283,6 +286,8 @@ export class BotService {
       }
       case 'receipt':
         return this.showReceipt(from, userId, rawText);
+      case 'refund':
+        return this.startRefundFlow(from, userId, rawText);
     }
   }
 
@@ -1072,10 +1077,131 @@ export class BotService {
     if (state.startsWith('KYC_')) {
       return this.handleKycFlow(from, userId, text, session);
     }
+    if (state.startsWith('REFUND_')) {
+      return this.handleRefundFlow(from, userId, text, session);
+    }
 
     // Unknown state — reset
     await deleteSession(from);
     await this.sendHelp(from, null);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  REFUND FLOW
+  // ═══════════════════════════════════════════════════════
+
+  private async startRefundFlow(from: string, userId: string, rawText: string): Promise<void> {
+    const ref = rawText.replace(/\/devolver/i, '').trim();
+    if (!ref) {
+      await this.wa.sendTextMessage(
+        from,
+        'Uso: /devolver #WP-2026-AABB1122\n\nEncuentra tu referencia en /historial.',
+      );
+      return;
+    }
+
+    const tx = await this.transactions.getTransactionByReference(ref, userId);
+    if (!tx) {
+      await this.wa.sendTextMessage(from, 'Transacción no encontrada. Verifica la referencia.');
+      return;
+    }
+
+    if (tx.direction !== 'Recibido') {
+      await this.wa.sendTextMessage(from, 'Solo puedes devolver pagos que hayas recibido.');
+      return;
+    }
+
+    if (tx.status === 'REVERSED') {
+      await this.wa.sendTextMessage(from, 'Esta transacción ya fue devuelta.');
+      return;
+    }
+
+    await setSession(from, {
+      userId,
+      waId: from,
+      state: 'REFUND_CONFIRM',
+      data: { reference: ref, amount: tx.amount, otherParty: tx.otherParty },
+      lastActivity: Date.now(),
+    });
+
+    await this.wa.sendButtonMessage(
+      from,
+      receipt([
+        'Devolver pago:',
+        `Monto: ${tx.amount}`,
+        `De: ${tx.otherParty}`,
+        `Ref: ${tx.reference}`,
+      ]),
+      [
+        { id: 'confirm_refund', title: 'Confirmar devolución' },
+        { id: 'cmd_cancel', title: 'Cancelar' },
+      ],
+    );
+  }
+
+  private async handleRefundFlow(
+    from: string,
+    userId: string,
+    text: string,
+    session: ConversationSession,
+  ): Promise<void> {
+    const state = session.state as State;
+
+    switch (state) {
+      case 'REFUND_CONFIRM': {
+        if (text === 'confirm_refund' || text.toLowerCase() === 'confirmar devolución') {
+          session.state = 'REFUND_ENTER_PIN';
+          await setSession(from, session);
+          await this.wa.sendTextMessage(from, 'Ingresa tu PIN de 6 dígitos:');
+          return;
+        }
+        await deleteSession(from);
+        await this.wa.sendTextMessage(from, 'Devolución cancelada.');
+        return;
+      }
+
+      case 'REFUND_ENTER_PIN': {
+        const pinResult = await this.users.verifyUserPin(from, text);
+        if (!pinResult.success) {
+          if (pinResult.isLocked) await deleteSession(from);
+          await this.wa.sendTextMessage(from, pinResult.message);
+          return;
+        }
+
+        const result = await this.transactions.refundTransaction(
+          sd(session.data, 'reference'),
+          userId,
+        );
+        await deleteSession(from);
+
+        if (!result.success) {
+          await this.wa.sendTextMessage(from, result.error || 'Error al procesar la devolución.');
+          return;
+        }
+
+        await this.wa.sendButtonMessage(
+          from,
+          [
+            'Devolución completada!',
+            receipt([
+              `Monto: ${sd(session.data, 'amount')}`,
+              `Devuelto a: ${sd(session.data, 'otherParty')}`,
+              `Ref devolución: ${result.refundReference}`,
+            ]),
+          ].join('\n'),
+          [
+            { id: 'cmd_balance', title: 'Ver saldo' },
+            { id: 'cmd_history', title: 'Historial' },
+          ],
+        );
+
+        log.info('Refund completed via bot', {
+          originalRef: sd(session.data, 'reference'),
+          refundRef: result.refundReference,
+        });
+        return;
+      }
+    }
   }
 
   private async showReceipt(from: string, userId: string, rawText: string): Promise<void> {
@@ -1134,6 +1260,7 @@ export class BotService {
             { id: 'cmd_kyc', title: 'Subir nivel', description: 'Aumenta tus límites de pago' },
             { id: 'cmd_changepin', title: 'Cambiar PIN', description: 'Actualiza tu PIN de seguridad' },
             { id: 'cmd_receipt', title: 'Comprobante', description: 'Busca un recibo por referencia' },
+            { id: 'cmd_refund', title: 'Devolver pago', description: 'Devuelve un pago recibido' },
           ],
         },
         {

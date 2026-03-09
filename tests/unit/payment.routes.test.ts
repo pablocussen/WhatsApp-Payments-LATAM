@@ -13,6 +13,7 @@ const mockGetMerchantLinks = jest.fn();
 const mockDeactivateLink = jest.fn();
 const mockProcessP2PPayment = jest.fn();
 const mockGetTransactionHistory = jest.fn();
+const mockRefundTransaction = jest.fn();
 const mockPaymentGetBalance = jest.fn();
 
 // ─── Module mocks ─────────────────────────────────────────────────────────────
@@ -44,6 +45,7 @@ jest.mock('../../src/services/transaction.service', () => ({
   TransactionService: jest.fn().mockImplementation(() => ({
     processP2PPayment: mockProcessP2PPayment,
     getTransactionHistory: mockGetTransactionHistory,
+    refundTransaction: mockRefundTransaction,
   })),
 }));
 
@@ -295,5 +297,41 @@ describe('GET /wallet/balance', () => {
     const res = await client.get('/wallet/balance', withAuth());
     expect(res.status).toBe(200);
     expect((res.body as { balance: number }).balance).toBe(75000);
+  });
+});
+
+// ─── POST /refund ───────────────────────────────────────────────────────────
+
+describe('POST /refund', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns 401 when not authenticated', async () => {
+    const res = await client.post('/refund', { body: { reference: '#WP-2026-AABB' } });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 when reference is missing', async () => {
+    const res = await client.post('/refund', { ...withAuth(), body: {} });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 201 on successful refund', async () => {
+    mockRefundTransaction.mockResolvedValue({
+      success: true,
+      refundReference: '#WP-2026-REFUND01',
+    });
+    const res = await client.post('/refund', { ...withAuth(), body: { reference: '#WP-2026-AABB' } });
+    expect(res.status).toBe(201);
+    expect((res.body as { refundReference: string }).refundReference).toBe('#WP-2026-REFUND01');
+  });
+
+  it('returns 400 when refund fails', async () => {
+    mockRefundTransaction.mockResolvedValue({
+      success: false,
+      error: 'Solo quien recibió el pago puede devolverlo.',
+    });
+    const res = await client.post('/refund', { ...withAuth(), body: { reference: '#WP-2026-AABB' } });
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toContain('Solo quien recibió');
   });
 });
