@@ -202,10 +202,9 @@ describe('BotService', () => {
 
       await bot.handleMessage(FROM, 'que hay');
 
-      expect(mockWa.sendListMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('WhatPay'),
-        expect.any(String),
         expect.any(Array),
       );
     });
@@ -320,7 +319,7 @@ describe('BotService', () => {
       expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
       expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('Bienvenido'),
+        expect.stringContaining('cuenta está lista'),
         expect.any(Array),
       );
     });
@@ -368,9 +367,10 @@ describe('BotService', () => {
       await bot.handleMessage(FROM, FROM);
 
       expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('ti mismo'),
+        expect.any(Array),
       );
     });
 
@@ -411,7 +411,11 @@ describe('BotService', () => {
       await bot.handleMessage(FROM, 'no');
 
       expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, 'Pago cancelado.');
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+        FROM,
+        expect.stringContaining('Pago cancelado'),
+        expect.any(Array),
+      );
     });
 
     it('PAY_ENTER_PIN: wrong PIN (not locked) → error message, session kept', async () => {
@@ -735,7 +739,7 @@ describe('BotService', () => {
       await bot.handleMessage(FROM, '483920');
 
       expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, 'Límite mensual alcanzado.');
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(FROM, 'Límite mensual alcanzado.', expect.any(Array));
     });
 
     it('handleStatefulFlow: unknown state → deleteSession + help', async () => {
@@ -745,10 +749,9 @@ describe('BotService', () => {
       await bot.handleMessage(FROM, 'anything');
 
       expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-      expect(mockWa.sendListMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('WhatPay'),
-        expect.any(String),
         expect.any(Array),
       );
     });
@@ -759,9 +762,10 @@ describe('BotService', () => {
 
       await bot.handleMessage(FROM, 'hola');
 
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('problema'),
+        expect.any(Array),
       );
     });
 
@@ -783,9 +787,10 @@ describe('BotService', () => {
       await bot.handleMessage(FROM, '/historial');
 
       expect(mockTransactions.getTransactionHistory).toHaveBeenCalledWith(USER_ID);
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('transacciones'),
+        expect.any(Array),
       );
     });
 
@@ -819,9 +824,10 @@ describe('BotService', () => {
 
       await bot.handleMessage(FROM, '/soporte');
 
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('soporte@whatpay.cl'),
+        expect.any(Array),
       );
     });
 
@@ -848,7 +854,11 @@ describe('BotService', () => {
       expect(mockUsers.getUserById).toHaveBeenCalledWith(USER_ID);
       expect(mockWallets.getBalance).toHaveBeenCalledWith(USER_ID);
       expect(mockTransactions.getTransactionStats).toHaveBeenCalledWith(USER_ID);
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('perfil'));
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+        FROM,
+        expect.stringContaining('Mi cuenta'),
+        expect.any(Array),
+      );
     });
 
     it('/kyc command on FULL account → informs already at max level', async () => {
@@ -900,9 +910,10 @@ describe('BotService', () => {
 
       expect(mockUsers.updateKycLevel).toHaveBeenCalledWith(USER_ID, 'INTERMEDIATE');
       expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('verificada'),
+        expect.any(Array),
       );
     });
 
@@ -913,9 +924,10 @@ describe('BotService', () => {
       await bot.handleMessage(FROM, 'kyc_cancel');
 
       expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('cancelada'),
+        expect.any(Array),
       );
     });
 
@@ -926,9 +938,10 @@ describe('BotService', () => {
       await bot.handleMessage(FROM, 'no sé');
 
       expect(mockUsers.updateKycLevel).not.toHaveBeenCalled();
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('Confirmar'),
+        expect.stringContaining('verificar'),
+        expect.any(Array),
       );
     });
 
@@ -938,10 +951,9 @@ describe('BotService', () => {
         .mockResolvedValueOnce(mkUser()) // handleMessage: user is registered
         .mockResolvedValueOnce(mkUser()); // case 'help': get name
       await bot.handleMessage(FROM, '/ayuda');
-      expect(mockWa.sendListMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('WhatPay'),
-        expect.any(String),
         expect.any(Array),
       );
     });
@@ -951,10 +963,9 @@ describe('BotService', () => {
         .mockResolvedValueOnce(mkUser()) // registered check
         .mockResolvedValueOnce({ ...mkUser(), name: null }); // case 'help': null name
       await bot.handleMessage(FROM, '/ayuda');
-      expect(mockWa.sendListMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('Hola!'),
-        expect.any(String),
+        expect.stringContaining('bienvenido'),
         expect.any(Array),
       );
     });
@@ -979,6 +990,7 @@ describe('BotService', () => {
 
     it('PAY_ENTER_PHONE: phone without 56 prefix → normalizes to 56XXXXXXXXX', async () => {
       mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_PHONE'));
+      mockUsers.getUserByWaId.mockReset();
       mockUsers.getUserByWaId
         .mockResolvedValueOnce(mkUser()) // initial registered check
         .mockResolvedValueOnce(null); // receiver not found after normalization
@@ -993,6 +1005,7 @@ describe('BotService', () => {
 
     it('PAY_ENTER_PHONE: receiver with null name → falls back to formatPhone', async () => {
       mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_PHONE'));
+      mockUsers.getUserByWaId.mockReset();
       mockUsers.getUserByWaId
         .mockResolvedValueOnce(mkUser()) // sender registered
         .mockResolvedValueOnce({
@@ -1023,7 +1036,7 @@ describe('BotService', () => {
       mockUsers.verifyUserPin.mockResolvedValue({ success: true, message: '' });
       mockTransactions.processP2PPayment.mockResolvedValue({ success: false }); // no error field
       await bot.handleMessage(FROM, '483920');
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, 'Error al procesar el pago.');
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('No pudimos procesar'), expect.any(Array));
     });
 
     it('PAY_ENTER_PIN: success with null sender lookup → formatPhone fallback in notification', async () => {
@@ -1053,6 +1066,7 @@ describe('BotService', () => {
 
     it('PAY_ENTER_PIN: empty session data → sd/sdn fallback to "" and 0', async () => {
       mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_PIN', {})); // no receiverId, amount
+      mockUsers.getUserByWaId.mockReset();
       mockUsers.getUserByWaId.mockResolvedValue(mkUser());
       mockUsers.verifyUserPin.mockResolvedValue({ success: true, message: '' });
       mockTransactions.processP2PPayment.mockResolvedValue({ success: false });
@@ -1082,7 +1096,7 @@ describe('BotService', () => {
       mockUsers.getUserByWaId.mockResolvedValue(mkUser());
       mockUsers.getUserById.mockResolvedValue(null);
       await bot.handleMessage(FROM, '/perfil');
-      expect(mockWa.sendTextMessage).not.toHaveBeenCalled();
+      expect(mockWa.sendButtonMessage).not.toHaveBeenCalled();
     });
 
     it('/perfil command → shows "Sin nombre" when user.name is null', async () => {
@@ -1103,9 +1117,10 @@ describe('BotService', () => {
         monthlySent: 0,
       });
       await bot.handleMessage(FROM, '/perfil');
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('Sin nombre'),
+        expect.any(Array),
       );
     });
 
@@ -1127,7 +1142,11 @@ describe('BotService', () => {
         monthlySent: 0,
       });
       await bot.handleMessage(FROM, '/perfil');
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('200.000'));
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+        FROM,
+        expect.stringContaining('200.000'),
+        expect.any(Array),
+      );
     });
 
     it('/perfil command → shows "Activada" when biometricEnabled is true', async () => {
@@ -1148,9 +1167,10 @@ describe('BotService', () => {
         monthlySent: 0,
       });
       await bot.handleMessage(FROM, '/perfil');
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('Activada'),
+        expect.stringContaining('Mi cuenta'),
+        expect.any(Array),
       );
     });
 
@@ -1172,9 +1192,10 @@ describe('BotService', () => {
         monthlySent: 80_000,
       });
       await bot.handleMessage(FROM, '/perfil');
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('Sin límite'),
+        expect.any(Array),
       );
     });
 
@@ -1231,8 +1252,11 @@ describe('BotService — /cancelar command', () => {
     await bot.handleMessage(FROM, '/cancelar');
 
     expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, 'Operación cancelada.');
-    expect(mockWa.sendListMessage).toHaveBeenCalled();
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('cancelada'),
+      expect.any(Array),
+    );
   });
 
   it('"cancelar" text (no slash) → same cancel behaviour', async () => {
@@ -1242,7 +1266,11 @@ describe('BotService — /cancelar command', () => {
     await bot.handleMessage(FROM, 'cancelar');
 
     expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, 'Operación cancelada.');
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('cancelada'),
+      expect.any(Array),
+    );
   });
 
   it('/cancelar when user has null name → sendHelp with null name', async () => {
@@ -1252,10 +1280,9 @@ describe('BotService — /cancelar command', () => {
     await bot.handleMessage(FROM, '/cancelar');
 
     expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-    expect(mockWa.sendListMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
-      expect.stringContaining('Hola!'),
-      expect.any(String),
+      expect.stringContaining('cancelada'),
       expect.any(Array),
     );
   });
@@ -1813,13 +1840,15 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
       '#WP-2026-AABB1122',
       USER_ID,
     );
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('Comprobante'),
+      expect.any(Array),
     );
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('#WP-2026-AABB1122'),
+      expect.any(Array),
     );
   });
 
@@ -1828,9 +1857,10 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
 
     await bot.handleMessage(FROM, '/recibo');
 
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
-      expect.stringContaining('Uso:'),
+      expect.stringContaining('referencia'),
+      expect.any(Array),
     );
   });
 
@@ -1860,9 +1890,10 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
 
     await bot.handleMessage(FROM, '/recibo #WP-2026-CCDD3344');
 
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('De: Pedro'),
+      expect.any(Array),
     );
   });
 
@@ -1922,9 +1953,10 @@ describe('refund flow', () => {
   it('/devolver without ref shows usage', async () => {
     await bot.handleMessage(FROM, '/devolver');
 
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
-      expect.stringContaining('Uso:'),
+      expect.stringContaining('referencia'),
+      expect.any(Array),
     );
   });
 
@@ -2027,7 +2059,11 @@ describe('refund flow', () => {
     await bot.handleMessage(FROM, 'algo');
 
     expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('cancelada'));
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('cancelada'),
+      expect.any(Array),
+    );
   });
 
   it('REFUND_ENTER_PIN → correct PIN → completes refund', async () => {

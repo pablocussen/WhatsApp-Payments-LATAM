@@ -25,6 +25,15 @@ const log = createLogger('bot-service');
 const sd = (data: Record<string, unknown>, key: string): string => (data[key] as string) ?? '';
 const sdn = (data: Record<string, unknown>, key: string): number => (data[key] as number) ?? 0;
 
+// ─── Personality: time-aware, empathetic ─────────────────
+const greeting = (name: string | null): string => {
+  const hour = new Date().getHours();
+  const n = name ? ` ${name}` : '';
+  if (hour >= 6 && hour < 12) return `Buenos días${n}`;
+  if (hour >= 12 && hour < 20) return `Buenas tardes${n}`;
+  return `Buenas noches${n}`;
+};
+
 // ─── Conversation States ────────────────────────────────
 
 type State =
@@ -99,7 +108,14 @@ export class BotService {
       }
     } catch (err) {
       log.error('Bot error', { from, error: (err as Error).message });
-      await this.wa.sendTextMessage(from, 'Tuvimos un problema. Intenta de nuevo en un momento.');
+      await this.wa.sendButtonMessage(
+        from,
+        'Tuvimos un problema. Intenta de nuevo.',
+        [
+          { id: 'cmd_pay', title: 'Enviar dinero' },
+          { id: 'cmd_balance', title: 'Mi billetera' },
+        ],
+      );
     }
   }
 
@@ -111,10 +127,11 @@ export class BotService {
     await this.wa.sendButtonMessage(
       from,
       [
-        'Hola! Soy WhatPay.',
-        'Envía y recibe pagos directo desde WhatsApp.',
+        'Bienvenido a *WhatPay*',
+        'Tu billetera digital en WhatsApp.',
         '',
-        'Para empezar necesito verificar tu identidad.',
+        'Envía y recibe dinero sin salir del chat.',
+        'Crear tu cuenta toma menos de 1 minuto.',
       ].join('\n'),
       [{ id: 'start_register', title: 'Crear mi cuenta' }],
     );
@@ -202,17 +219,17 @@ export class BotService {
         await this.wa.sendButtonMessage(
           from,
           [
-            'Cuenta creada! Bienvenido a WhatPay.',
+            'Tu cuenta está lista.',
             '',
             'Nivel: Básico (hasta $200.000/mes)',
             'Saldo: $0 CLP',
             '',
-            '¿Qué quieres hacer?',
+            '¿Qué quieres hacer primero?',
           ].join('\n'),
           [
-            { id: 'cmd_pay', title: 'Enviar pago' },
-            { id: 'cmd_charge', title: 'Cobrar' },
             { id: 'cmd_topup', title: 'Recargar saldo' },
+            { id: 'cmd_pay', title: 'Enviar dinero' },
+            { id: 'cmd_charge', title: 'Cobrar' },
           ],
         );
         return;
@@ -225,28 +242,75 @@ export class BotService {
   // ═══════════════════════════════════════════════════════
 
   private parseCommand(text: string, buttonId?: string): string | null {
-    const normalized = text.trim().toLowerCase();
+    const n = text.trim().toLowerCase();
 
-    // Button IDs
+    // Button IDs from interactive messages
     if (buttonId?.startsWith('cmd_')) return buttonId.replace('cmd_', '');
 
-    // Text commands
-    if (normalized.startsWith('/pagar') || normalized === 'pagar') return 'pay';
-    if (normalized.startsWith('/cobrar')) return 'charge';
-    if (normalized.startsWith('/saldo') || normalized === 'saldo') return 'balance';
-    if (normalized.startsWith('/recargar')) return 'topup';
-    if (normalized.startsWith('/historial')) return 'history';
-    if (normalized.startsWith('/ayuda') || normalized === 'hola' || normalized === 'menu')
+    // ── Greetings & menu ────────────────────────────────
+    if (/^(hola|hey|buenas?|buenos?\s*(d[ií]as?|tardes?|noches?)|hi|hello|qu[eé]\s*tal|menu|men[uú]|inicio|home|ayuda|help|opciones|\?|que\s*puedo\s*hacer)$/i.test(n))
       return 'help';
-    if (normalized.startsWith('/soporte')) return 'support';
-    if (normalized.startsWith('/perfil')) return 'profile';
-    if (normalized.startsWith('/cambiarpin')) return 'changepin';
-    if (normalized.startsWith('/kyc') || normalized === 'verificar') return 'kyc';
-    if (normalized.startsWith('/cancelar') || normalized === 'cancelar') return 'cancel';
-    if (normalized.startsWith('/recibo')) return 'receipt';
-    if (normalized.startsWith('/devolver')) return 'refund';
-    if (normalized.startsWith('/silenciar')) return 'mute';
-    if (normalized.startsWith('/horario')) return 'quiethours';
+
+    // ── Pay ──────────────────────────────────────────────
+    if (/^(\/pagar|pagar|enviar\s*(plata|dinero|pago)|transferir|mandar\s*(plata|dinero)|quiero\s*pagar)/i.test(n))
+      return 'pay';
+    if (n.startsWith('pagar ') || n.startsWith('enviar ')) return 'pay';
+
+    // ── Charge ───────────────────────────────────────────
+    if (/^(\/cobrar|cobrar|quiero\s*cobrar|me\s*deben|crear?\s*cobro)/i.test(n))
+      return 'charge';
+    if (n.startsWith('cobrar ')) return 'charge';
+
+    // ── Balance ──────────────────────────────────────────
+    if (/^(\/saldo|saldo|mi\s*saldo|cu[aá]nto\s*tengo|mi\s*plata|billetera|wallet|balance|mi\s*billetera)/i.test(n))
+      return 'balance';
+
+    // ── Top-up ───────────────────────────────────────────
+    if (/^(\/recargar|recargar|cargar\s*saldo|agregar\s*(plata|fondos|saldo)|quiero\s*recargar)/i.test(n))
+      return 'topup';
+
+    // ── History ──────────────────────────────────────────
+    if (/^(\/historial|historial|mis\s*pagos|movimientos|[uú]ltimos?\s*pagos?|transacciones)/i.test(n))
+      return 'history';
+
+    // ── Profile ──────────────────────────────────────────
+    if (/^(\/perfil|perfil|mi\s*perfil|mi\s*cuenta|mis\s*datos|cuenta)/i.test(n))
+      return 'profile';
+
+    // ── Support ──────────────────────────────────────────
+    if (/^(\/soporte|soporte|ayuda\s*humana|hablar\s*con\s*alguien|contacto|reclamo)/i.test(n))
+      return 'support';
+
+    // ── Change PIN ───────────────────────────────────────
+    if (/^(\/cambiarpin|cambiar\s*pin|nuevo\s*pin|cambiar\s*clave)/i.test(n))
+      return 'changepin';
+
+    // ── KYC ──────────────────────────────────────────────
+    if (/^(\/kyc|verificar|subir\s*nivel|aumentar\s*l[ií]mites?|upgrade)/i.test(n))
+      return 'kyc';
+
+    // ── Cancel ───────────────────────────────────────────
+    if (/^(\/cancelar|cancelar|salir|volver|atr[aá]s|no\s*gracias)/i.test(n))
+      return 'cancel';
+
+    // ── Receipt ──────────────────────────────────────────
+    if (/^(\/recibo|recibo|comprobante|boleta)/i.test(n)) return 'receipt';
+    if (n.startsWith('recibo ') || n.startsWith('comprobante ')) return 'receipt';
+
+    // ── Refund ───────────────────────────────────────────
+    if (/^(\/devolver|devolver|devoluci[oó]n|reembolso)/i.test(n)) return 'refund';
+    if (n.startsWith('devolver ')) return 'refund';
+
+    // ── Mute ─────────────────────────────────────────────
+    if (/^(\/silenciar|silenciar|silencio|notificaciones)/i.test(n)) return 'mute';
+
+    // ── Quiet hours ──────────────────────────────────────
+    if (/^(\/horario|horario\s*silencioso)/i.test(n)) return 'quiethours';
+    if (n.startsWith('horario ')) return 'quiethours';
+
+    // ── Gratitude → show menu ────────────────────────────
+    if (/^(gracias|thanks|vale|listo|genial|ok|dale|perfect[oa]?|buena)$/i.test(n))
+      return 'help';
 
     return null;
   }
@@ -273,9 +337,13 @@ export class BotService {
         return this.sendHelp(from, user?.name ?? null);
       }
       case 'support':
-        return this.wa.sendTextMessage(
+        return this.wa.sendButtonMessage(
           from,
-          'Soporte WhatPay: escríbenos a soporte@whatpay.cl o llama al 600 XXX XXXX (Lun-Vie 9-18h).',
+          '*Soporte WhatPay*\n\nEscríbenos a soporte@whatpay.cl\nLun-Vie 9:00 - 18:00',
+          [
+            { id: 'cmd_pay', title: 'Enviar dinero' },
+            { id: 'cmd_balance', title: 'Mi billetera' },
+          ],
         );
       case 'profile':
         return this.showProfile(from, userId);
@@ -286,8 +354,16 @@ export class BotService {
       case 'cancel': {
         await deleteSession(from);
         const user = await this.users.getUserByWaId(from);
-        await this.wa.sendTextMessage(from, 'Operación cancelada.');
-        return this.sendHelp(from, user?.name ?? null);
+        await this.wa.sendButtonMessage(
+          from,
+          'Operación cancelada.\n\n¿Qué necesitas?',
+          [
+            { id: 'cmd_pay', title: 'Enviar dinero' },
+            { id: 'cmd_charge', title: 'Cobrar' },
+            { id: 'cmd_balance', title: 'Mi billetera' },
+          ],
+        );
+        return;
       }
       case 'receipt':
         return this.showReceipt(from, userId, rawText);
@@ -407,9 +483,13 @@ export class BotService {
 
         if (receiver.id === userId) {
           await deleteSession(from);
-          await this.wa.sendTextMessage(
+          await this.wa.sendButtonMessage(
             from,
-            'No puedes pagarte a ti mismo. Usa /pagar para intentar con otro número.',
+            'No puedes pagarte a ti mismo.',
+            [
+              { id: 'cmd_pay', title: 'Otro número' },
+              { id: 'cmd_balance', title: 'Mi billetera' },
+            ],
           );
           return;
         }
@@ -478,7 +558,10 @@ export class BotService {
           return;
         }
         await deleteSession(from);
-        await this.wa.sendTextMessage(from, 'Pago cancelado.');
+        await this.wa.sendButtonMessage(from, 'Pago cancelado.', [
+          { id: 'cmd_pay', title: 'Nuevo pago' },
+          { id: 'cmd_balance', title: 'Mi billetera' },
+        ]);
         return;
       }
 
@@ -504,7 +587,14 @@ export class BotService {
         await deleteSession(from);
 
         if (!payment.success) {
-          await this.wa.sendTextMessage(from, payment.error || 'Error al procesar el pago.');
+          await this.wa.sendButtonMessage(
+            from,
+            payment.error || 'No pudimos procesar el pago. Intenta de nuevo.',
+            [
+              { id: 'cmd_pay', title: 'Reintentar' },
+              { id: 'cmd_balance', title: 'Mi billetera' },
+            ],
+          );
           return;
         }
 
@@ -514,34 +604,34 @@ export class BotService {
         await this.wa.sendButtonMessage(
           from,
           [
-            'Pago enviado!',
+            `Listo, pago enviado`,
             receipt([
-              `${formatCLP(sdn(session.data, 'amount'))} -> ${sd(session.data, 'receiverName')}`,
+              `*${formatCLP(sdn(session.data, 'amount'))}* a ${sd(session.data, 'receiverName')}`,
               `Ref: ${payment.reference}`,
               `Fecha: ${now}`,
-              `Saldo: ${payment.senderBalance}`,
+              `Saldo restante: ${payment.senderBalance}`,
             ]),
           ].join('\n'),
           [
             { id: 'cmd_pay', title: 'Otro pago' },
-            { id: 'cmd_balance', title: 'Ver saldo' },
+            { id: 'cmd_balance', title: 'Mi billetera' },
           ],
         );
 
-        // Notify receiver with reference for receipts
+        // Notify receiver
         const sender = await this.users.getUserByWaId(from);
         await this.wa.sendButtonMessage(
           sd(session.data, 'receiverPhone'),
           [
-            'Tienes un pago!',
+            `Recibiste un pago`,
             receipt([
-              `${sender?.name || formatPhone(from)} te envió ${formatCLP(sdn(session.data, 'amount'))}`,
+              `*${formatCLP(sdn(session.data, 'amount'))}* de ${sender?.name || formatPhone(from)}`,
               `Ref: ${payment.reference}`,
               `Fecha: ${now}`,
             ]),
           ].join('\n'),
           [
-            { id: 'cmd_balance', title: 'Ver saldo' },
+            { id: 'cmd_balance', title: 'Mi billetera' },
             { id: 'cmd_pay', title: 'Devolver pago' },
           ],
         );
@@ -768,15 +858,27 @@ export class BotService {
 
   private async showBalance(from: string, userId: string): Promise<void> {
     const balance = await this.wallets.getBalance(userId);
-    await this.wa.sendButtonMessage(from, `Tu saldo: ${balance.formatted}`, [
-      { id: 'cmd_topup', title: 'Recargar' },
-      { id: 'cmd_history', title: 'Historial' },
-    ]);
+    await this.wa.sendButtonMessage(
+      from,
+      `*Mi billetera*\n\nSaldo disponible: *${balance.formatted}*`,
+      [
+        { id: 'cmd_pay', title: 'Enviar dinero' },
+        { id: 'cmd_topup', title: 'Recargar' },
+        { id: 'cmd_history', title: 'Movimientos' },
+      ],
+    );
   }
 
   private async showHistory(from: string, userId: string): Promise<void> {
     const history = await this.transactions.getTransactionHistory(userId);
-    await this.wa.sendTextMessage(from, history);
+    await this.wa.sendButtonMessage(
+      from,
+      history,
+      [
+        { id: 'cmd_pay', title: 'Enviar dinero' },
+        { id: 'cmd_balance', title: 'Mi billetera' },
+      ],
+    );
   }
 
   private async showProfile(from: string, userId: string): Promise<void> {
@@ -795,23 +897,27 @@ export class BotService {
     const monthlyRemaining = Math.max(0, monthlyLimit - stats.monthlySent);
     const limitLabel = user.kycLevel === 'FULL' ? 'Sin límite' : formatCLP(monthlyLimit);
 
-    await this.wa.sendTextMessage(
+    await this.wa.sendButtonMessage(
       from,
       [
-        'Tu perfil WhatPay:',
+        `*Mi cuenta*`,
         divider(),
-        `Nombre: ${user.name || 'Sin nombre'}`,
-        `Nivel: ${user.kycLevel}`,
+        `${user.name || 'Sin nombre'} · Nivel ${user.kycLevel}`,
+        `Saldo: *${balance.formatted}*`,
+        divider(),
         `Límite mensual: ${limitLabel}`,
-        `Usado este mes: ${formatCLP(stats.monthlySent)}`,
-        `Disponible mes: ${user.kycLevel === 'FULL' ? 'Sin límite' : formatCLP(monthlyRemaining)}`,
-        `Saldo: ${balance.formatted}`,
-        `Enviado total: ${formatCLP(stats.totalSent)}`,
-        `Recibido total: ${formatCLP(stats.totalReceived)}`,
-        `Transacciones: ${stats.txCount}`,
-        `Biometría: ${user.biometricEnabled ? 'Activada' : 'No activada'}`,
+        `Usado: ${formatCLP(stats.monthlySent)}`,
+        `Disponible: ${user.kycLevel === 'FULL' ? 'Sin límite' : formatCLP(monthlyRemaining)}`,
         divider(),
+        `Enviado: ${formatCLP(stats.totalSent)}`,
+        `Recibido: ${formatCLP(stats.totalReceived)}`,
+        `Operaciones: ${stats.txCount}`,
       ].join('\n'),
+      [
+        { id: 'cmd_kyc', title: 'Subir nivel' },
+        { id: 'cmd_changepin', title: 'Cambiar PIN' },
+        { id: 'cmd_balance', title: 'Mi billetera' },
+      ],
     );
   }
 
@@ -1031,31 +1137,40 @@ export class BotService {
 
     if (normalized === 'kyc_cancel' || normalized === 'cancelar') {
       await deleteSession(from);
-      await this.wa.sendTextMessage(from, 'Verificación cancelada.');
+      await this.wa.sendButtonMessage(from, 'Verificación cancelada.', [
+        { id: 'cmd_balance', title: 'Mi billetera' },
+        { id: 'cmd_pay', title: 'Enviar dinero' },
+      ]);
       return;
     }
 
     if (normalized === 'kyc_confirm' || normalized === 'confirmar') {
       await this.users.updateKycLevel(userId, 'INTERMEDIATE');
       await deleteSession(from);
-      await this.wa.sendTextMessage(
+      await this.wa.sendButtonMessage(
         from,
         [
-          '✅ Cuenta verificada — nivel INTERMEDIATE',
+          'Cuenta verificada — nivel *INTERMEDIATE*',
           divider(),
           'Nuevos límites activados:',
           '  Por transacción: $500.000',
           '  Mensual: $2.000.000',
-          divider(),
-          'Puedes seguir usando /pagar, /cobrar y acceder al dashboard de comercio.',
         ].join('\n'),
+        [
+          { id: 'cmd_pay', title: 'Enviar dinero' },
+          { id: 'cmd_balance', title: 'Mi billetera' },
+        ],
       );
       return;
     }
 
-    await this.wa.sendTextMessage(
+    await this.wa.sendButtonMessage(
       from,
-      'Responde "Confirmar" para verificar o "Cancelar" para volver.',
+      '¿Quieres verificar tu cuenta?',
+      [
+        { id: 'kyc_confirm', title: 'Confirmar' },
+        { id: 'kyc_cancel', title: 'Cancelar' },
+      ],
     );
   }
 
@@ -1100,11 +1215,15 @@ export class BotService {
   // ═══════════════════════════════════════════════════════
 
   private async startRefundFlow(from: string, userId: string, rawText: string): Promise<void> {
-    const ref = rawText.replace(/\/devolver/i, '').trim();
+    const ref = rawText.replace(/^(\/devolver|devolver|devoluci[oó]n|reembolso)\s*/i, '').trim();
     if (!ref) {
-      await this.wa.sendTextMessage(
+      await this.wa.sendButtonMessage(
         from,
-        'Uso: /devolver #WP-2026-AABB1122\n\nEncuentra tu referencia en /historial.',
+        'Escribe la referencia del pago que quieres devolver.\n\nEj: devolver #WP-2026-AABB1122',
+        [
+          { id: 'cmd_history', title: 'Ver movimientos' },
+          { id: 'cmd_balance', title: 'Mi billetera' },
+        ],
       );
       return;
     }
@@ -1165,7 +1284,10 @@ export class BotService {
           return;
         }
         await deleteSession(from);
-        await this.wa.sendTextMessage(from, 'Devolución cancelada.');
+        await this.wa.sendButtonMessage(from, 'Devolución cancelada.', [
+          { id: 'cmd_balance', title: 'Mi billetera' },
+          { id: 'cmd_history', title: 'Movimientos' },
+        ]);
         return;
       }
 
@@ -1214,11 +1336,15 @@ export class BotService {
   }
 
   private async showReceipt(from: string, userId: string, rawText: string): Promise<void> {
-    const ref = rawText.replace(/\/recibo/i, '').trim();
+    const ref = rawText.replace(/^(\/recibo|recibo|comprobante|boleta)\s*/i, '').trim();
     if (!ref) {
-      await this.wa.sendTextMessage(
+      await this.wa.sendButtonMessage(
         from,
-        'Uso: /recibo #WP-2026-AABB1122\n\nEncuentra tu referencia en /historial.',
+        'Escribe la referencia del pago.\n\nEj: recibo #WP-2026-AABB1122',
+        [
+          { id: 'cmd_history', title: 'Ver movimientos' },
+          { id: 'cmd_balance', title: 'Mi billetera' },
+        ],
       );
       return;
     }
@@ -1229,10 +1355,10 @@ export class BotService {
       return;
     }
 
-    await this.wa.sendTextMessage(
+    await this.wa.sendButtonMessage(
       from,
       [
-        'Comprobante de transacción:',
+        '*Comprobante*',
         receipt([
           `Ref: ${tx.reference}`,
           `Tipo: ${tx.direction}`,
@@ -1243,43 +1369,22 @@ export class BotService {
           `Estado: ${tx.status}`,
         ]),
       ].join('\n'),
+      [
+        { id: 'cmd_history', title: 'Movimientos' },
+        { id: 'cmd_balance', title: 'Mi billetera' },
+      ],
     );
   }
 
   private async sendHelp(from: string, name: string | null): Promise<void> {
-    await this.wa.sendListMessage(
+    const greet = greeting(name);
+    await this.wa.sendButtonMessage(
       from,
-      `${name ? `Hola ${name}!` : 'Hola!'} Soy WhatPay.\nEnvía y recibe dinero desde WhatsApp.`,
-      'Ver opciones',
+      `${greet}, bienvenido a *WhatPay*\nTu billetera en WhatsApp.\n\n¿Qué necesitas?`,
       [
-        {
-          title: 'Pagos',
-          rows: [
-            { id: 'cmd_pay', title: 'Enviar pago', description: 'Transfiere dinero a otro usuario' },
-            { id: 'cmd_charge', title: 'Cobrar', description: 'Crea un enlace de cobro' },
-            { id: 'cmd_balance', title: 'Ver saldo', description: 'Consulta tu saldo actual' },
-            { id: 'cmd_topup', title: 'Recargar saldo', description: 'Agrega fondos vía Khipu' },
-          ],
-        },
-        {
-          title: 'Cuenta',
-          rows: [
-            { id: 'cmd_history', title: 'Historial', description: 'Últimas transacciones' },
-            { id: 'cmd_profile', title: 'Mi perfil', description: 'Tu cuenta y límites' },
-            { id: 'cmd_kyc', title: 'Subir nivel', description: 'Aumenta tus límites de pago' },
-            { id: 'cmd_changepin', title: 'Cambiar PIN', description: 'Actualiza tu PIN de seguridad' },
-            { id: 'cmd_receipt', title: 'Comprobante', description: 'Busca un recibo por referencia' },
-            { id: 'cmd_refund', title: 'Devolver pago', description: 'Devuelve un pago recibido' },
-          ],
-        },
-        {
-          title: 'Otros',
-          rows: [
-            { id: 'cmd_mute', title: 'Silenciar', description: 'Activa/desactiva notificaciones' },
-            { id: 'cmd_cancel', title: 'Cancelar', description: 'Cancela la operación actual' },
-            { id: 'cmd_support', title: 'Soporte', description: 'Contacta ayuda humana' },
-          ],
-        },
+        { id: 'cmd_pay', title: 'Enviar dinero' },
+        { id: 'cmd_charge', title: 'Cobrar' },
+        { id: 'cmd_balance', title: 'Mi billetera' },
       ],
     );
   }
@@ -1291,23 +1396,28 @@ export class BotService {
   private async toggleMute(from: string, userId: string): Promise<void> {
     const prefs = await notificationPrefs.toggleEnabled(userId);
     const statusText = prefs.enabled
-      ? 'Notificaciones *activadas*. Recibirás avisos de pagos recibidos.'
-      : 'Notificaciones *silenciadas*. No recibirás avisos de pagos (puedes reactivar con /silenciar).';
+      ? 'Notificaciones *activadas*.\nRecibirás avisos de pagos recibidos.'
+      : 'Notificaciones *silenciadas*.\nEscribe "notificaciones" para reactivar.';
 
-    await this.wa.sendTextMessage(from, statusText);
+    await this.wa.sendButtonMessage(from, statusText, [
+      { id: 'cmd_balance', title: 'Mi billetera' },
+      { id: 'cmd_pay', title: 'Enviar dinero' },
+    ]);
   }
 
   private async handleQuietHours(from: string, userId: string, rawText: string): Promise<void> {
-    const args = rawText.replace(/\/horario/i, '').trim();
+    const args = rawText.replace(/^(\/horario|horario\s*silencioso|horario)\s*/i, '').trim();
 
-    // /horario off → disable quiet hours
     if (args.toLowerCase() === 'off') {
       await notificationPrefs.disableQuietHours(userId);
-      await this.wa.sendTextMessage(from, 'Horario silencioso *desactivado*. Recibirás notificaciones a cualquier hora.');
+      await this.wa.sendButtonMessage(
+        from,
+        'Horario silencioso *desactivado*.\nRecibirás notificaciones a cualquier hora.',
+        [{ id: 'cmd_balance', title: 'Mi billetera' }],
+      );
       return;
     }
 
-    // /horario 23-7 → set quiet hours
     const match = args.match(/^(\d{1,2})\s*[-a]\s*(\d{1,2})$/);
     if (!match) {
       const prefs = await notificationPrefs.get(userId);
@@ -1315,15 +1425,15 @@ export class BotService {
         ? `Activo: ${prefs.quietStart}:00 - ${prefs.quietEnd}:00`
         : 'Desactivado';
 
-      await this.wa.sendTextMessage(
+      await this.wa.sendButtonMessage(
         from,
         [
           `*Horario silencioso:* ${status}`,
           '',
-          'Uso: /horario INICIO-FIN',
-          'Ejemplo: /horario 23-7 (silencio de 23:00 a 07:00)',
-          '/horario off (desactivar)',
+          'Escribe "horario 23-7" para activar',
+          'Escribe "horario off" para desactivar',
         ].join('\n'),
+        [{ id: 'cmd_balance', title: 'Mi billetera' }],
       );
       return;
     }
@@ -1333,12 +1443,17 @@ export class BotService {
 
     try {
       await notificationPrefs.setQuietHours(userId, start, end);
-      await this.wa.sendTextMessage(
+      await this.wa.sendButtonMessage(
         from,
         `Horario silencioso *activado*: ${start}:00 - ${end}:00\nNo recibirás notificaciones en ese horario.`,
+        [{ id: 'cmd_balance', title: 'Mi billetera' }],
       );
     } catch {
-      await this.wa.sendTextMessage(from, 'Horas inválidas. Usa valores entre 0 y 23. Ejemplo: /horario 23-7');
+      await this.wa.sendButtonMessage(
+        from,
+        'Horas inválidas. Usa valores entre 0 y 23.\nEj: horario 23-7',
+        [{ id: 'cmd_balance', title: 'Mi billetera' }],
+      );
     }
   }
 }
