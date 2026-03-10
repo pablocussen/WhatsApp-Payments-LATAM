@@ -16,6 +16,7 @@ import { formatCLP, formatPhone, formatDateCL, divider, receipt } from '../utils
 import { validateRut, formatRut, hashPin, verifyPinHash, generateReference } from '../utils/crypto';
 import { isSecurePin } from '../middleware/auth.middleware';
 import { env } from '../config/environment';
+import { notificationPrefs } from './notification-prefs.service';
 
 const log = createLogger('bot-service');
 
@@ -242,6 +243,8 @@ export class BotService {
     if (normalized.startsWith('/cancelar') || normalized === 'cancelar') return 'cancel';
     if (normalized.startsWith('/recibo')) return 'receipt';
     if (normalized.startsWith('/devolver')) return 'refund';
+    if (normalized.startsWith('/silenciar')) return 'mute';
+    if (normalized.startsWith('/horario')) return 'quiethours';
 
     return null;
   }
@@ -288,6 +291,10 @@ export class BotService {
         return this.showReceipt(from, userId, rawText);
       case 'refund':
         return this.startRefundFlow(from, userId, rawText);
+      case 'mute':
+        return this.toggleMute(from, userId);
+      case 'quiethours':
+        return this.handleQuietHours(from, userId, rawText);
     }
   }
 
@@ -1266,11 +1273,70 @@ export class BotService {
         {
           title: 'Otros',
           rows: [
+            { id: 'cmd_mute', title: 'Silenciar', description: 'Activa/desactiva notificaciones' },
             { id: 'cmd_cancel', title: 'Cancelar', description: 'Cancela la operación actual' },
             { id: 'cmd_support', title: 'Soporte', description: 'Contacta ayuda humana' },
           ],
         },
       ],
     );
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  NOTIFICATION PREFERENCES
+  // ═══════════════════════════════════════════════════════
+
+  private async toggleMute(from: string, userId: string): Promise<void> {
+    const prefs = await notificationPrefs.toggleEnabled(userId);
+    const statusText = prefs.enabled
+      ? 'Notificaciones *activadas*. Recibirás avisos de pagos recibidos.'
+      : 'Notificaciones *silenciadas*. No recibirás avisos de pagos (puedes reactivar con /silenciar).';
+
+    await this.wa.sendTextMessage(from, statusText);
+  }
+
+  private async handleQuietHours(from: string, userId: string, rawText: string): Promise<void> {
+    const args = rawText.replace(/\/horario/i, '').trim();
+
+    // /horario off → disable quiet hours
+    if (args.toLowerCase() === 'off') {
+      await notificationPrefs.disableQuietHours(userId);
+      await this.wa.sendTextMessage(from, 'Horario silencioso *desactivado*. Recibirás notificaciones a cualquier hora.');
+      return;
+    }
+
+    // /horario 23-7 → set quiet hours
+    const match = args.match(/^(\d{1,2})\s*[-a]\s*(\d{1,2})$/);
+    if (!match) {
+      const prefs = await notificationPrefs.get(userId);
+      const status = prefs.quietHoursEnabled
+        ? `Activo: ${prefs.quietStart}:00 - ${prefs.quietEnd}:00`
+        : 'Desactivado';
+
+      await this.wa.sendTextMessage(
+        from,
+        [
+          `*Horario silencioso:* ${status}`,
+          '',
+          'Uso: /horario INICIO-FIN',
+          'Ejemplo: /horario 23-7 (silencio de 23:00 a 07:00)',
+          '/horario off (desactivar)',
+        ].join('\n'),
+      );
+      return;
+    }
+
+    const start = parseInt(match[1], 10);
+    const end = parseInt(match[2], 10);
+
+    try {
+      await notificationPrefs.setQuietHours(userId, start, end);
+      await this.wa.sendTextMessage(
+        from,
+        `Horario silencioso *activado*: ${start}:00 - ${end}:00\nNo recibirás notificaciones en ese horario.`,
+      );
+    } catch {
+      await this.wa.sendTextMessage(from, 'Horas inválidas. Usa valores entre 0 y 23. Ejemplo: /horario 23-7');
+    }
   }
 }
