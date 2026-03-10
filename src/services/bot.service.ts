@@ -17,6 +17,7 @@ import { validateRut, formatRut, hashPin, verifyPinHash, generateReference } fro
 import { isSecurePin } from '../middleware/auth.middleware';
 import { env } from '../config/environment';
 import { notificationPrefs } from './notification-prefs.service';
+import { activity } from './activity.service';
 
 const log = createLogger('bot-service');
 
@@ -79,6 +80,7 @@ export class BotService {
 
       // ── Registered user: handle commands or state
       if (user) {
+        activity.touch(user.id); // fire-and-forget last-seen update
         // Check for commands first (reset any ongoing flow)
         const command = this.parseCommand(text, buttonId);
         if (command) {

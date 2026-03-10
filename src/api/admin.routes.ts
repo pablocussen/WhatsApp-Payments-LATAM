@@ -6,6 +6,7 @@ import { createLogger } from '../config/logger';
 import { asyncHandler } from '../utils/async-handler';
 import { audit } from '../services/audit.service';
 import { WhatsAppService } from '../services/whatsapp.service';
+import { activity } from '../services/activity.service';
 
 const log = createLogger('admin-api');
 const router = Router();
@@ -410,6 +411,19 @@ router.delete(
   asyncHandler(async (_req: Request, res: Response) => {
     const count = await WhatsAppService.clearDLQ();
     return res.json({ message: `Cleared ${count} DLQ entries.`, count });
+  }),
+);
+
+// ─── User Activity ──────────────────────────────────────
+
+router.get(
+  '/users/:id/activity',
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    const userActivity = await activity.getActivity(req.params.id);
+    return res.json(userActivity);
   }),
 );
 

@@ -30,6 +30,7 @@ jest.mock('../../src/config/environment', () => ({
   },
 }));
 
+const mockRedisGet = jest.fn().mockResolvedValue(null);
 const mockRedisLRange = jest.fn().mockResolvedValue([]);
 const mockRedisLLen = jest.fn().mockResolvedValue(0);
 const mockRedisDel = jest.fn().mockResolvedValue(1);
@@ -37,6 +38,8 @@ const mockRedisDel = jest.fn().mockResolvedValue(1);
 jest.mock('../../src/config/database', () => ({
   prisma: mockPrisma,
   getRedis: jest.fn().mockReturnValue({
+    get: (...args: unknown[]) => mockRedisGet(...args),
+    set: jest.fn().mockResolvedValue('OK'),
     lRange: (...args: unknown[]) => mockRedisLRange(...args),
     lLen: (...args: unknown[]) => mockRedisLLen(...args),
     del: (...args: unknown[]) => mockRedisDel(...args),
@@ -503,5 +506,35 @@ describe('GET /transactions/export', () => {
     const csv = res.body as string;
     expect(csv).toContain('"Has ""quotes"" and, commas"');
     expect(csv).toContain('O\'Brien');
+  });
+});
+
+// ─── GET /users/:id/activity ───────────────────────────
+
+describe('GET /users/:id/activity', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns 404 for unknown user', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue(null);
+    const res = await client.get('/users/unknown/activity', adminHeaders());
+    expect(res.status).toBe(404);
+  });
+
+  it('returns activity summary for existing user', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ id: 'u1' });
+    mockRedisGet
+      .mockResolvedValueOnce('2026-03-09T12:00:00Z') // lastSeen
+      .mockResolvedValueOnce('3');                     // loginCount
+    mockRedisLRange.mockResolvedValue([
+      JSON.stringify({ type: 'LOGIN', userId: 'u1', timestamp: '2026-03-09T12:00:00Z' }),
+    ]);
+
+    const res = await client.get('/users/u1/activity', adminHeaders());
+    expect(res.status).toBe(200);
+
+    const body = res.body as { lastSeen: string; loginCount: number; recentEvents: unknown[] };
+    expect(body.lastSeen).toBe('2026-03-09T12:00:00Z');
+    expect(body.loginCount).toBe(3);
+    expect(body.recentEvents).toHaveLength(1);
   });
 });
