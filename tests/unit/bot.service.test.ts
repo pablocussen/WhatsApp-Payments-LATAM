@@ -199,12 +199,13 @@ describe('BotService', () => {
 
     it('sends help for unrecognized message (registered user, no active session)', async () => {
       mockUsers.getUserByWaId.mockResolvedValue(mkUser());
+      mockWallets.getBalance.mockResolvedValue({ formatted: '$25.000 CLP', amount: 25_000 });
 
       await bot.handleMessage(FROM, 'que hay');
 
       expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('WhatPay'),
+        expect.stringContaining('necesitas'),
         expect.any(Array),
       );
     });
@@ -319,7 +320,7 @@ describe('BotService', () => {
       expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
       expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('cuenta está lista'),
+        expect.stringContaining('cuenta está creada'),
         expect.any(Array),
       );
     });
@@ -752,7 +753,7 @@ describe('BotService', () => {
       expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
       expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('WhatPay'),
+        expect.stringContaining('necesitas'),
         expect.any(Array),
       );
     });
@@ -765,7 +766,7 @@ describe('BotService', () => {
 
       expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('problema'),
+        expect.stringContaining('algo falló'),
         expect.any(Array),
       );
     });
@@ -952,10 +953,11 @@ describe('BotService', () => {
       mockUsers.getUserByWaId
         .mockResolvedValueOnce(mkUser()) // handleMessage: user is registered
         .mockResolvedValueOnce(mkUser()); // case 'help': get name
+      mockWallets.getBalance.mockResolvedValue({ formatted: '$25.000 CLP', amount: 25_000 });
       await bot.handleMessage(FROM, '/ayuda');
       expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('WhatPay'),
+        expect.stringContaining('necesitas'),
         expect.any(Array),
       );
     });
@@ -964,10 +966,11 @@ describe('BotService', () => {
       mockUsers.getUserByWaId
         .mockResolvedValueOnce(mkUser()) // registered check
         .mockResolvedValueOnce({ ...mkUser(), name: null }); // case 'help': null name
+      mockWallets.getBalance.mockResolvedValue({ formatted: '$25.000 CLP', amount: 25_000 });
       await bot.handleMessage(FROM, '/ayuda');
       expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
-        expect.stringContaining('bienvenido'),
+        expect.stringContaining('necesitas'),
         expect.any(Array),
       );
     });

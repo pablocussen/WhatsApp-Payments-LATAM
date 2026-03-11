@@ -37,9 +37,27 @@ const greeting = (name: string | null): string => {
   return `Buenas noches${n}`;
 };
 
-// ─── Amount parsing (handles $5.000, 5000, 5,000) ───────
+// ─── Amount parsing (handles $5.000, 5000, 5,000, "5 lucas", "una luca") ───
 const parseAmount = (text: string): number => {
-  const cleaned = text.replace(/[$.\s]/g, '').replace(/,/g, '');
+  const n = text.trim().toLowerCase();
+
+  // Chilean slang: "una luca" = 1000, "5 lucas" = 5000, "media luca" = 500
+  if (/media\s*luca/i.test(n)) return 500;
+  if (/^una\s*luca$/i.test(n)) return 1_000;
+  const lucasMatch = n.match(/^(\d+(?:[.,]\d+)?)\s*lucas?$/i);
+  if (lucasMatch) return Math.round(parseFloat(lucasMatch[1].replace(',', '.')) * 1_000);
+
+  // Chilean slang: "un palo" = 1M, "2 palos" = 2M
+  if (/^un\s*palo$/i.test(n)) return 1_000_000;
+  const paloMatch = n.match(/^(\d+)\s*palos?$/i);
+  if (paloMatch) return parseInt(paloMatch[1], 10) * 1_000_000;
+
+  // "5k" / "10k"
+  const kMatch = n.match(/^(\d+)\s*k$/i);
+  if (kMatch) return parseInt(kMatch[1], 10) * 1_000;
+
+  // Standard: $5.000, 5000, 5,000
+  const cleaned = n.replace(/[$.\s]/g, '').replace(/,/g, '');
   return parseInt(cleaned, 10);
 };
 
@@ -120,13 +138,13 @@ export class BotService {
         }
 
         // Unknown message
-        await this.sendHelp(from, user.name);
+        await this.sendHelp(from, user.name, user.id);
       }
     } catch (err) {
       log.error('Bot error', { from, error: (err as Error).message });
       await this.wa.sendButtonMessage(
         from,
-        'Tuvimos un problema. Intenta de nuevo.',
+        'Ups, algo falló de nuestro lado. Intenta de nuevo en unos segundos.',
         [
           { id: 'cmd_pay', title: 'Enviar dinero' },
           { id: 'cmd_balance', title: 'Mi billetera' },
@@ -140,13 +158,15 @@ export class BotService {
   // ═══════════════════════════════════════════════════════
 
   private async startRegistration(from: string): Promise<void> {
+    const greet = greeting(null);
     await this.wa.sendButtonMessage(
       from,
       [
-        'Bienvenido a *WhatPay*',
-        'Tu billetera digital en WhatsApp.',
+        `${greet} 👋`,
         '',
-        'Envía y recibe dinero sin salir del chat.',
+        'Soy *WhatPay*, tu billetera en WhatsApp.',
+        '',
+        'Envía y recibe plata sin salir del chat.',
         'Crear tu cuenta toma menos de 1 minuto.',
       ].join('\n'),
       [{ id: 'start_register', title: 'Crear mi cuenta' }],
@@ -235,12 +255,12 @@ export class BotService {
         await this.wa.sendButtonMessage(
           from,
           [
-            'Tu cuenta está lista.',
+            'Listo, tu cuenta está creada 🎉',
             '',
-            'Nivel: Básico (hasta $200.000/mes)',
-            'Saldo: $0 CLP',
+            '📊 Nivel Básico (hasta $200.000/mes)',
+            '💰 Saldo: $0 CLP',
             '',
-            '¿Qué quieres hacer primero?',
+            'Recarga saldo para hacer tu primer pago.',
           ].join('\n'),
           [
             { id: 'cmd_topup', title: 'Recargar saldo' },
@@ -325,8 +345,17 @@ export class BotService {
     if (n.startsWith('horario ')) return 'quiethours';
 
     // ── Gratitude → show menu ────────────────────────────
-    if (/^(gracias|thanks|vale|listo|genial|ok|dale|perfect[oa]?|buena)$/i.test(n))
+    if (/^(gracias|thanks|vale|listo|genial|ok|dale|perfect[oa]?|buena|bac[aá]n|sipo|ya)$/i.test(n))
       return 'help';
+
+    // ── Fuzzy intent detection (longer phrases) ────────
+    if (/necesito\s*(enviar|mandar|transferir|pagar)/i.test(n)) return 'pay';
+    if (/quiero\s*ver\s*(mi\s*)?(saldo|plata|billetera)/i.test(n)) return 'balance';
+    if (/cu[aá]nta?\s*plata\s*(tengo|me\s*queda)/i.test(n)) return 'balance';
+    if (/me\s*(mandaron|enviaron|transfirieron)\s*(plata|dinero)/i.test(n)) return 'history';
+    if (/qu[eé]\s*(pagos?|movimientos?)\s*(tengo|hice)/i.test(n)) return 'history';
+    if (/necesito\s*plata/i.test(n)) return 'topup';
+    if (/c[oó]mo\s*(recargo|cargo|agrego)\s*(saldo|plata)/i.test(n)) return 'topup';
 
     return null;
   }
@@ -349,8 +378,8 @@ export class BotService {
       case 'history':
         return this.showHistory(from, userId);
       case 'help': {
-        const user = await this.users.getUserByWaId(from);
-        return this.sendHelp(from, user?.name ?? null);
+        const helpUser = await this.users.getUserByWaId(from);
+        return this.sendHelp(from, helpUser?.name ?? null, helpUser?.id);
       }
       case 'support':
         return this.wa.sendButtonMessage(
@@ -565,6 +594,22 @@ export class BotService {
           text.toLowerCase() === 'si' ||
           text.toLowerCase() === 'sí'
         ) {
+          // Proactive balance check — warn before asking for PIN
+          const preCheck = await this.wallets.getBalance(userId);
+          const payAmount = sdn(session.data, 'amount');
+          if (preCheck.balance < payAmount) {
+            await deleteSession(from);
+            await this.wa.sendButtonMessage(
+              from,
+              `Saldo insuficiente.\n\nNecesitas *${formatCLP(payAmount)}* pero tienes *${preCheck.formatted}*.\nRecarga tu billetera para continuar.`,
+              [
+                { id: 'cmd_topup', title: 'Recargar' },
+                { id: 'cmd_balance', title: 'Mi billetera' },
+              ],
+            );
+            return;
+          }
+
           session.state = 'PAY_ENTER_PIN';
           await setSession(from, session);
           await this.wa.sendTextMessage(from, 'Ingresa tu PIN de 6 dígitos:');
@@ -617,7 +662,7 @@ export class BotService {
         await this.wa.sendButtonMessage(
           from,
           [
-            `Listo, pago enviado`,
+            `Pago enviado ✅`,
             receipt([
               `*${formatCLP(sdn(session.data, 'amount'))}* a ${sd(session.data, 'receiverName')}`,
               `Ref: ${payment.reference}`,
@@ -636,7 +681,7 @@ export class BotService {
         await this.wa.sendButtonMessage(
           sd(session.data, 'receiverPhone'),
           [
-            `Recibiste un pago`,
+            `Recibiste un pago 💸`,
             receipt([
               `*${formatCLP(sdn(session.data, 'amount'))}* de ${sender?.name || formatPhone(from)}`,
               `Ref: ${payment.reference}`,
@@ -882,7 +927,7 @@ export class BotService {
     const balance = await this.wallets.getBalance(userId);
     await this.wa.sendButtonMessage(
       from,
-      `*Mi billetera*\n\nSaldo disponible: *${balance.formatted}*`,
+      `💰 *Mi billetera*\n\nSaldo: *${balance.formatted}*`,
       [
         { id: 'cmd_pay', title: 'Enviar dinero' },
         { id: 'cmd_topup', title: 'Recargar' },
@@ -1367,7 +1412,7 @@ export class BotService {
         await this.wa.sendButtonMessage(
           from,
           [
-            'Devolución completada!',
+            'Devolución completada ✅',
             receipt([
               `Monto: ${sd(session.data, 'amount')}`,
               `Devuelto a: ${sd(session.data, 'otherParty')}`,
@@ -1433,11 +1478,21 @@ export class BotService {
     );
   }
 
-  private async sendHelp(from: string, name: string | null): Promise<void> {
+  private async sendHelp(from: string, name: string | null, userId?: string): Promise<void> {
     const greet = greeting(name);
+
+    // Context-aware: show balance summary for returning users
+    let context = '';
+    if (userId) {
+      try {
+        const balance = await this.wallets.getBalance(userId);
+        context = `\nSaldo: *${balance.formatted}*`;
+      } catch { /* fail-open */ }
+    }
+
     await this.wa.sendButtonMessage(
       from,
-      `${greet}, bienvenido a *WhatPay*\nTu billetera en WhatsApp.\n\n¿Qué necesitas?`,
+      `${greet} 👋\n¿Qué necesitas?${context}`,
       [
         { id: 'cmd_pay', title: 'Enviar dinero' },
         { id: 'cmd_charge', title: 'Cobrar' },
