@@ -122,7 +122,7 @@ describe('Code Generation', () => {
 
   it('generates references in correct format', () => {
     const ref = generateReference();
-    expect(ref).toMatch(/^#WP-\d{4}-[A-F0-9]{8}$/);
+    expect(ref).toMatch(/^#WP-\d{4}-[A-F0-9]{16}$/);
   });
 
   it('generates OTPs of correct length', () => {

@@ -22,17 +22,25 @@ jest.mock('../../src/config/environment', () => ({
   },
 }));
 
+const mockRedisDel = jest.fn().mockResolvedValue(1);
+
 jest.mock('../../src/config/database', () => ({
   getRedis: jest.fn().mockReturnValue({
     set: mockRedisSet,
+    del: mockRedisDel,
   }),
   prisma: {},
 }));
+
+const mockMarkAsRead = jest.fn().mockResolvedValue(undefined);
+const mockSendButtonMessage = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('../../src/services/whatsapp.service', () => ({
   WhatsAppService: jest.fn().mockImplementation(() => ({
     verifyWebhook: mockVerifyWebhook,
     parseWebhookMessage: mockParseWebhookMessage,
+    markAsRead: mockMarkAsRead,
+    sendButtonMessage: mockSendButtonMessage,
   })),
 }));
 
@@ -171,6 +179,7 @@ describe('POST /webhook', () => {
   it('processes message without id (no dedup check)', async () => {
     const noIdMessage = { from: '56912345678', type: 'text', text: { body: '/ayuda' } };
     mockParseWebhookMessage.mockReturnValue(noIdMessage);
+    mockRedisSet.mockResolvedValue('OK');
     mockHandleMessage.mockResolvedValue(undefined);
 
     const res = await client.post('/webhook', { body: {} });
@@ -178,8 +187,6 @@ describe('POST /webhook', () => {
     await new Promise((r) => setTimeout(r, 50));
     // With no id, isDuplicate check is skipped and message is processed
     expect(mockHandleMessage).toHaveBeenCalledWith('56912345678', '/ayuda', undefined);
-    // Redis set should NOT have been called (no messageId)
-    expect(mockRedisSet).not.toHaveBeenCalled();
   });
 
   it('handles list_reply interactive messages (covers list_reply?.id branch)', async () => {

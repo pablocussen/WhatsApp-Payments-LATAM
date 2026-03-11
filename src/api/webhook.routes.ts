@@ -11,6 +11,7 @@ const bot = new BotService();
 const log = createLogger('webhook');
 
 const DEDUP_TTL = 300; // 5 minutes
+const USER_LOCK_TTL = 15; // 15s max per message processing
 
 async function isDuplicate(messageId: string): Promise<boolean> {
   try {
@@ -22,6 +23,27 @@ async function isDuplicate(messageId: string): Promise<boolean> {
   } catch {
     return false; // Redis down → process anyway (fail-open)
   }
+}
+
+/** Per-user lock prevents concurrent message processing that could corrupt session */
+async function acquireUserLock(waId: string): Promise<boolean> {
+  try {
+    const { getRedis } = await import('../config/database');
+    const redis = getRedis();
+    const key = `wa:lock:${waId}`;
+    const wasSet = await redis.set(key, '1', { NX: true, EX: USER_LOCK_TTL });
+    return wasSet !== null;
+  } catch {
+    return true; // Redis down → process anyway (fail-open)
+  }
+}
+
+async function releaseUserLock(waId: string): Promise<void> {
+  try {
+    const { getRedis } = await import('../config/database');
+    const redis = getRedis();
+    await redis.del(`wa:lock:${waId}`);
+  } catch { /* best-effort */ }
 }
 
 /**
@@ -90,12 +112,40 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     log.debug('Message received', { from: message.from, type: message.type });
 
-    const text = message.text?.body?.trim() || '';
-    const buttonId = message.interactive?.button_reply?.id;
-    const listId = message.interactive?.list_reply?.id;
-    const input = buttonId || listId || text;
+    // Blue ticks — fire-and-forget
+    whatsapp.markAsRead(message.id).catch(() => {});
 
-    await bot.handleMessage(message.from, input, buttonId || listId);
+    // Media messages → friendly fallback
+    const MEDIA_TYPES = ['image', 'audio', 'video', 'sticker', 'location', 'contacts', 'document'];
+    if (MEDIA_TYPES.includes(message.type)) {
+      await whatsapp.sendButtonMessage(
+        message.from,
+        'Por ahora solo proceso mensajes de texto. Escríbeme lo que necesitas.',
+        [
+          { id: 'cmd_pay', title: 'Enviar dinero' },
+          { id: 'cmd_balance', title: 'Mi billetera' },
+        ],
+      );
+      return;
+    }
+
+    // Per-user lock: prevent concurrent message processing
+    const gotLock = await acquireUserLock(message.from);
+    if (!gotLock) {
+      log.debug('User lock active, skipping concurrent message', { from: message.from });
+      return;
+    }
+
+    try {
+      const text = message.text?.body?.trim() || '';
+      const buttonId = message.interactive?.button_reply?.id;
+      const listId = message.interactive?.list_reply?.id;
+      const input = buttonId || listId || text;
+
+      await bot.handleMessage(message.from, input, buttonId || listId);
+    } finally {
+      await releaseUserLock(message.from);
+    }
   } catch (error) {
     log.error('Webhook processing error', { error: (error as Error).message });
   }

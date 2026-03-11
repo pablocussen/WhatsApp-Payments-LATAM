@@ -105,6 +105,13 @@ jest.mock('../../src/services/khipu.service', () => ({
   KhipuService: jest.fn().mockImplementation(() => mockKhipu),
 }));
 
+const mockAuditLog = jest.fn();
+jest.mock('../../src/services/audit.service', () => ({
+  AuditService: jest.fn().mockImplementation(() => ({
+    log: mockAuditLog,
+  })),
+}));
+
 import { BotService } from '../../src/services/bot.service';
 
 // ─── Helpers ─────────────────────────────────────────────

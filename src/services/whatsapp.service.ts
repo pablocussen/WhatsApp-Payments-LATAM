@@ -58,7 +58,7 @@ interface IncomingMessage {
   from: string;
   id: string;
   timestamp: string;
-  type: 'text' | 'interactive' | 'button';
+  type: 'text' | 'interactive' | 'button' | 'image' | 'audio' | 'video' | 'sticker' | 'location' | 'contacts' | 'document';
   text?: { body: string };
   interactive?: {
     type: string;
@@ -78,6 +78,19 @@ export class WhatsAppService {
     this.apiUrl = env.WHATSAPP_API_URL;
     this.phoneNumberId = env.WHATSAPP_PHONE_NUMBER_ID;
     this.apiToken = env.WHATSAPP_API_TOKEN;
+  }
+
+  /** Mark a message as read (blue ticks) — fire-and-forget */
+  async markAsRead(messageId: string): Promise<void> {
+    const url = `${this.apiUrl}/${this.phoneNumberId}/messages`;
+    try {
+      await fetch(url, {
+        method: 'POST',
+        signal: AbortSignal.timeout(3_000),
+        headers: { Authorization: `Bearer ${this.apiToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: messageId }),
+      });
+    } catch { /* best-effort */ }
   }
 
   async sendTextMessage(to: string, body: string): Promise<void> {
@@ -182,7 +195,7 @@ export class WhatsAppService {
                       from: z.string(),
                       id: z.string(),
                       timestamp: z.string(),
-                      type: z.enum(['text', 'interactive', 'button']),
+                      type: z.enum(['text', 'interactive', 'button', 'image', 'audio', 'video', 'sticker', 'location', 'contacts', 'document']),
                       text: z.object({ body: z.string() }).optional(),
                       interactive: z
                         .object({

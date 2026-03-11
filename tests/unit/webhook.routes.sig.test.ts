@@ -21,17 +21,25 @@ jest.mock('../../src/config/environment', () => ({
   },
 }));
 
+const mockRedisDel = jest.fn().mockResolvedValue(1);
+
 jest.mock('../../src/config/database', () => ({
   getRedis: jest.fn().mockReturnValue({
     set: mockRedisSet,
+    del: mockRedisDel,
   }),
   prisma: {},
 }));
+
+const mockMarkAsRead = jest.fn().mockResolvedValue(undefined);
+const mockSendButtonMessage = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('../../src/services/whatsapp.service', () => ({
   WhatsAppService: jest.fn().mockImplementation(() => ({
     verifyWebhook: mockVerifyWebhook,
     parseWebhookMessage: mockParseWebhookMessage,
+    markAsRead: mockMarkAsRead,
+    sendButtonMessage: mockSendButtonMessage,
   })),
 }));
 

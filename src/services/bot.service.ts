@@ -18,6 +18,7 @@ import { isSecurePin } from '../middleware/auth.middleware';
 import { env } from '../config/environment';
 import { notificationPrefs } from './notification-prefs.service';
 import { activity } from './activity.service';
+import { AuditService } from './audit.service';
 
 const log = createLogger('bot-service');
 
@@ -103,6 +104,7 @@ export class BotService {
   private transactions = new TransactionService();
   private paymentLinks = new PaymentLinkService();
   private khipu = new KhipuService();
+  private audit = new AuditService();
 
   async handleMessage(from: string, text: string, buttonId?: string): Promise<void> {
     try {
@@ -627,6 +629,13 @@ export class BotService {
         // Verify PIN
         const pinResult = await this.users.verifyUserPin(from, text);
         if (!pinResult.success) {
+          this.audit.log({
+            eventType: 'PIN_FAILED',
+            actorType: 'USER',
+            actorId: userId,
+            targetUserId: userId,
+            metadata: { flow: 'PAY', locked: pinResult.isLocked ?? false },
+          });
           if (pinResult.isLocked) await deleteSession(from);
           await this.wa.sendTextMessage(from, pinResult.message);
           return;
@@ -1094,6 +1103,13 @@ export class BotService {
       case 'CHANGE_PIN_CURRENT': {
         const verify = await this.users.verifyUserPin(from, text);
         if (!verify.success) {
+          this.audit.log({
+            eventType: 'PIN_FAILED',
+            actorType: 'USER',
+            actorId: _userId,
+            targetUserId: _userId,
+            metadata: { flow: 'CHANGE_PIN', locked: verify.isLocked ?? false },
+          });
           if (verify.isLocked) await deleteSession(from);
           await this.wa.sendTextMessage(from, verify.message);
           return;
@@ -1386,6 +1402,13 @@ export class BotService {
       case 'REFUND_ENTER_PIN': {
         const pinResult = await this.users.verifyUserPin(from, text);
         if (!pinResult.success) {
+          this.audit.log({
+            eventType: 'PIN_FAILED',
+            actorType: 'USER',
+            actorId: userId,
+            targetUserId: userId,
+            metadata: { flow: 'REFUND', locked: pinResult.isLocked ?? false },
+          });
           if (pinResult.isLocked) await deleteSession(from);
           await this.wa.sendTextMessage(from, pinResult.message);
           return;

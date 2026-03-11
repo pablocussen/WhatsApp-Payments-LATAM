@@ -15,6 +15,7 @@ export type EventType =
   | 'PIN_CHANGED'
   | 'ACCOUNT_LOCKED'
   | 'KYC_UPGRADED'
+  | 'PIN_FAILED'
   | 'USER_BANNED'
   | 'USER_UNBANNED';
 

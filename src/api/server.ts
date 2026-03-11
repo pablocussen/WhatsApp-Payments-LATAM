@@ -20,6 +20,9 @@ import { SchedulerService } from '../services/scheduler.service';
 const log = createLogger('server');
 const scheduler = new SchedulerService();
 const app = express();
+const startedAt = new Date();
+const pkg = { version: '0.1.0' }; // read once at startup
+try { Object.assign(pkg, require('../../package.json')); } catch { /* bundled */ }
 
 // Trust Google Cloud Run / load balancer proxies so req.ip reflects the real
 // client IP address (from X-Forwarded-For) rather than the proxy's IP.
@@ -55,7 +58,7 @@ app.use((req, _res, next) => {
 app.get('/', (_req, res) => {
   res.json({
     service: 'whatpay-api',
-    version: '0.1.0',
+    version: pkg.version,
     status: 'ok',
     docs: '/api/docs',
     health: '/health',
@@ -63,32 +66,40 @@ app.get('/', (_req, res) => {
 });
 
 app.get('/health', async (_req, res) => {
-  const checks: Record<string, 'ok' | 'error'> = {};
+  const checks: Record<string, { status: 'ok' | 'error'; latencyMs?: number }> = {};
 
   // Redis ping
+  const redisStart = Date.now();
   try {
     await getRedis().ping();
-    checks.redis = 'ok';
+    checks.redis = { status: 'ok', latencyMs: Date.now() - redisStart };
   } catch {
-    checks.redis = 'error';
+    checks.redis = { status: 'error', latencyMs: Date.now() - redisStart };
   }
 
   // DB ping
+  const dbStart = Date.now();
   try {
     await prisma.$queryRaw`SELECT 1`;
-    checks.db = 'ok';
+    checks.db = { status: 'ok', latencyMs: Date.now() - dbStart };
   } catch {
-    checks.db = 'error';
+    checks.db = { status: 'error', latencyMs: Date.now() - dbStart };
   }
 
-  const allOk = Object.values(checks).every((v) => v === 'ok');
+  const allOk = Object.values(checks).every((v) => v.status === 'ok');
   const httpStatus = allOk ? 200 : 503;
+
+  const uptimeMs = Date.now() - startedAt.getTime();
+  const uptimeH = Math.floor(uptimeMs / 3_600_000);
+  const uptimeM = Math.floor((uptimeMs % 3_600_000) / 60_000);
 
   res.status(httpStatus).json({
     status: allOk ? 'ok' : 'degraded',
     service: 'whatpay-api',
-    version: '0.1.0',
+    version: pkg.version,
     timestamp: new Date().toISOString(),
+    uptime: `${uptimeH}h ${uptimeM}m`,
+    startedAt: startedAt.toISOString(),
     environment: env.NODE_ENV,
     checks,
   });
