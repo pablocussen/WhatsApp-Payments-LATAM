@@ -25,13 +25,30 @@ const log = createLogger('bot-service');
 const sd = (data: Record<string, unknown>, key: string): string => (data[key] as string) ?? '';
 const sdn = (data: Record<string, unknown>, key: string): number => (data[key] as number) ?? 0;
 
-// ─── Personality: time-aware, empathetic ─────────────────
+// ─── Personality: time-aware (Chile TZ), empathetic ──────
 const greeting = (name: string | null): string => {
-  const hour = new Date().getHours();
+  const hour = parseInt(
+    new Date().toLocaleString('en-US', { timeZone: 'America/Santiago', hour: 'numeric', hour12: false }),
+    10,
+  );
   const n = name ? ` ${name}` : '';
   if (hour >= 6 && hour < 12) return `Buenos días${n}`;
   if (hour >= 12 && hour < 20) return `Buenas tardes${n}`;
   return `Buenas noches${n}`;
+};
+
+// ─── Amount parsing (handles $5.000, 5000, 5,000) ───────
+const parseAmount = (text: string): number => {
+  const cleaned = text.replace(/[$.\s]/g, '').replace(/,/g, '');
+  return parseInt(cleaned, 10);
+};
+
+// ─── Phone normalization (strip +, -, spaces, leading 0) ─
+const normalizePhone = (raw: string): string => {
+  let phone = raw.replace(/[\s\-+()]/g, '');
+  // Strip leading 0 (common in Chile: 09 1234 5678)
+  if (phone.startsWith('0')) phone = phone.slice(1);
+  return phone.startsWith('56') ? phone : `56${phone}`;
 };
 
 // ─── Conversation States ────────────────────────────────
@@ -75,15 +92,14 @@ export class BotService {
       const session = await getSession(from);
       const user = await this.users.getUserByWaId(from);
 
-      // ── Not registered → Onboarding
-      if (!user && !session) {
-        await this.startRegistration(from);
-        return;
-      }
-
-      // ── In registration flow
-      if (session && session.state.startsWith('REGISTER')) {
-        await this.handleRegistration(from, text, session);
+      // ── Not registered → Onboarding (also handles stale non-REGISTER sessions)
+      if (!user) {
+        if (session && session.state.startsWith('REGISTER')) {
+          await this.handleRegistration(from, text, session);
+        } else {
+          if (session) await deleteSession(from); // clean stale session
+          await this.startRegistration(from);
+        }
         return;
       }
 
@@ -381,14 +397,14 @@ export class BotService {
   // ═══════════════════════════════════════════════════════
 
   private async startPayFlow(from: string, userId: string, rawText?: string): Promise<void> {
-    // Quick-pay: /pagar 56912345678 5000
+    // Quick-pay: pagar 56912345678 5000 / enviar 912345678 10000
     if (rawText) {
-      const parts = rawText.replace(/\/pagar/i, '').trim().split(/\s+/);
-      const quickPhone = parts[0]?.replace(/[\s\-+]/g, '');
-      const quickAmount = parseInt(parts[1], 10);
+      const parts = rawText.replace(/^(\/pagar|pagar|enviar\s*(plata|dinero)?|transferir|mandar\s*(plata|dinero)?|quiero\s*pagar)\s*/i, '').trim().split(/\s+/);
+      const quickPhone = parts[0]?.replace(/[\s\-+()]/g, '');
+      const quickAmount = parseAmount(parts[1] || '');
 
       if (quickPhone && /^\d{8,12}$/.test(quickPhone) && !isNaN(quickAmount) && quickAmount >= 100) {
-        const normalizedPhone = quickPhone.startsWith('56') ? quickPhone : `56${quickPhone}`;
+        const normalizedPhone = normalizePhone(quickPhone);
         const receiver = await this.users.getUserByWaId(normalizedPhone);
 
         if (receiver && receiver.id !== userId) {
@@ -416,7 +432,7 @@ export class BotService {
             ]),
             [
               { id: 'confirm_pay', title: 'Confirmar y pagar' },
-              { id: 'cmd_help', title: 'Cancelar' },
+              { id: 'cmd_cancel', title: 'Cancelar' },
             ],
           );
           return;
@@ -464,8 +480,7 @@ export class BotService {
         // Find receiver — handle rcpt_ button clicks
         const rcptMatch = text.match(/^rcpt_(\d+)$/);
         const rawPhone = rcptMatch ? rcptMatch[1] : text;
-        const phone = rawPhone.replace(/[\s\-+]/g, '');
-        const normalizedPhone = phone.startsWith('56') ? phone : `56${phone}`;
+        const normalizedPhone = normalizePhone(rawPhone);
 
         const receiver = await this.users.getUserByWaId(normalizedPhone);
         if (!receiver) {
@@ -515,9 +530,7 @@ export class BotService {
       case 'PAY_ENTER_AMOUNT': {
         // Handle preset amount button clicks (amt_5000)
         const amtMatch = text.match(/^amt_(\d+)$/);
-        const amount = amtMatch
-          ? parseInt(amtMatch[1], 10)
-          : parseInt(text.replace(/[$.]/g, ''), 10);
+        const amount = amtMatch ? parseInt(amtMatch[1], 10) : parseAmount(text);
         if (isNaN(amount) || amount < 100) {
           await this.wa.sendTextMessage(from, 'Monto inválido. Mínimo $100 CLP. Escribe el monto:');
           return;
@@ -539,7 +552,7 @@ export class BotService {
           ]),
           [
             { id: 'confirm_pay', title: 'Confirmar y pagar' },
-            { id: 'cmd_help', title: 'Cancelar' },
+            { id: 'cmd_cancel', title: 'Cancelar' },
           ],
         );
         return;
@@ -650,12 +663,12 @@ export class BotService {
   // ═══════════════════════════════════════════════════════
 
   private async startChargeFlow(from: string, userId: string, rawText: string): Promise<void> {
-    // Quick charge: /cobrar 3500 Café
+    // Quick charge: cobrar 3500 Café
     const parts = rawText
-      .replace(/\/cobrar/i, '')
+      .replace(/^(\/cobrar|cobrar|quiero\s*cobrar|me\s*deben|crear?\s*cobro)\s*/i, '')
       .trim()
       .split(/\s+/);
-    const quickAmount = parseInt(parts[0], 10);
+    const quickAmount = parseAmount(parts[0] || '');
 
     if (!isNaN(quickAmount) && quickAmount >= 100) {
       const description = parts.slice(1).join(' ') || 'Pago';
@@ -725,9 +738,7 @@ export class BotService {
     switch (session.state as State) {
       case 'CHARGE_ENTER_AMOUNT': {
         const amtMatch = text.match(/^amt_(\d+)$/);
-        const amount = amtMatch
-          ? parseInt(amtMatch[1], 10)
-          : parseInt(text.replace(/[$.]/g, ''), 10);
+        const amount = amtMatch ? parseInt(amtMatch[1], 10) : parseAmount(text);
         if (isNaN(amount) || amount < 100 || amount > 50_000_000) {
           await this.wa.sendTextMessage(
             from,
@@ -791,6 +802,10 @@ export class BotService {
           normalized === 'no'
         ) {
           await deleteSession(from);
+          await this.wa.sendButtonMessage(from, 'Listo, el enlace de cobro está creado.', [
+            { id: 'cmd_charge', title: 'Nuevo cobro' },
+            { id: 'cmd_balance', title: 'Mi billetera' },
+          ]);
           return;
         }
 
@@ -824,8 +839,7 @@ export class BotService {
     text: string,
     session: ConversationSession,
   ): Promise<void> {
-    const phone = text.replace(/[\s\-+]/g, '');
-    const normalizedPhone = phone.startsWith('56') ? phone : `56${phone}`;
+    const normalizedPhone = normalizePhone(text);
 
     if (!/^\d{10,12}$/.test(normalizedPhone)) {
       await this.wa.sendTextMessage(
@@ -836,16 +850,24 @@ export class BotService {
     }
 
     const merchant = await this.users.getUserByWaId(from);
-    await this.wa.sendTextMessage(
+    const chargeAmount = sdn(session.data, 'linkAmount');
+    const chargeDesc = sd(session.data, 'linkDescription');
+    const chargeUrl = sd(session.data, 'linkUrl');
+
+    await this.wa.sendButtonMessage(
       normalizedPhone,
       [
         `${merchant?.name || 'Alguien'} te envió un cobro:`,
         receipt([
-          `Monto: ${formatCLP(sdn(session.data, 'linkAmount'))}`,
-          `Concepto: ${sd(session.data, 'linkDescription')}`,
-          `Pagar: ${sd(session.data, 'linkUrl')}`,
+          `Monto: ${formatCLP(chargeAmount)}`,
+          `Concepto: ${chargeDesc}`,
+          `Enlace: ${chargeUrl}`,
         ]),
       ].join('\n'),
+      [
+        { id: `pay_charge_${chargeAmount}`, title: 'Pagar ahora' },
+        { id: 'charge_decline', title: 'Rechazar' },
+      ],
     );
 
     await deleteSession(from);
@@ -947,9 +969,7 @@ export class BotService {
   ): Promise<void> {
     // Parse preset button click (topup_10000) or free-text custom amount
     const presetMatch = text.match(/^topup_(\d+)$/);
-    const amount = presetMatch
-      ? parseInt(presetMatch[1], 10)
-      : parseInt(text.replace(/[$.]/g, ''), 10);
+    const amount = presetMatch ? parseInt(presetMatch[1], 10) : parseAmount(text);
 
     if (isNaN(amount) || amount < 1000 || amount > 500_000) {
       await this.wa.sendTextMessage(
@@ -995,9 +1015,16 @@ export class BotService {
         ].join('\n'),
       );
     } catch (err) {
+      log.error('TopUp flow error', { from, error: (err as Error).message });
       await deleteSession(from);
-      await this.wa.sendTextMessage(from, 'Error al generar el link de pago. Intenta de nuevo.');
-      throw err;
+      await this.wa.sendButtonMessage(
+        from,
+        'No pudimos generar el link de pago. Intenta de nuevo.',
+        [
+          { id: 'cmd_topup', title: 'Reintentar' },
+          { id: 'cmd_balance', title: 'Mi billetera' },
+        ],
+      );
     }
   }
 
@@ -1053,7 +1080,10 @@ export class BotService {
         // Current PIN was already verified; use UserService to update safely
         await this.users.setNewPin(from, text);
         await deleteSession(from);
-        await this.wa.sendTextMessage(from, 'PIN actualizado correctamente.');
+        await this.wa.sendButtonMessage(from, 'PIN actualizado correctamente.', [
+          { id: 'cmd_balance', title: 'Mi billetera' },
+          { id: 'cmd_pay', title: 'Enviar dinero' },
+        ]);
         return;
       }
     }
@@ -1074,15 +1104,19 @@ export class BotService {
     };
 
     if (user.kycLevel === 'FULL') {
-      await this.wa.sendTextMessage(
+      await this.wa.sendButtonMessage(
         from,
         'Ya tienes el nivel máximo de verificación (FULL). No hay nada que actualizar.',
+        [
+          { id: 'cmd_balance', title: 'Mi billetera' },
+          { id: 'cmd_profile', title: 'Mi cuenta' },
+        ],
       );
       return;
     }
 
     if (user.kycLevel === 'INTERMEDIATE') {
-      await this.wa.sendTextMessage(
+      await this.wa.sendButtonMessage(
         from,
         [
           'Tu nivel actual es INTERMEDIATE.',
@@ -1092,6 +1126,10 @@ export class BotService {
           divider(),
           'Para escalar a FULL (sin límite mensual) contáctanos en soporte@whatpay.cl',
         ].join('\n'),
+        [
+          { id: 'cmd_balance', title: 'Mi billetera' },
+          { id: 'cmd_support', title: 'Contactar soporte' },
+        ],
       );
       return;
     }
@@ -1230,17 +1268,26 @@ export class BotService {
 
     const tx = await this.transactions.getTransactionByReference(ref, userId);
     if (!tx) {
-      await this.wa.sendTextMessage(from, 'Transacción no encontrada. Verifica la referencia.');
+      await this.wa.sendButtonMessage(from, 'Transacción no encontrada. Verifica la referencia.', [
+        { id: 'cmd_history', title: 'Ver movimientos' },
+        { id: 'cmd_balance', title: 'Mi billetera' },
+      ]);
       return;
     }
 
     if (tx.direction !== 'Recibido') {
-      await this.wa.sendTextMessage(from, 'Solo puedes devolver pagos que hayas recibido.');
+      await this.wa.sendButtonMessage(from, 'Solo puedes devolver pagos que hayas recibido.', [
+        { id: 'cmd_history', title: 'Ver movimientos' },
+        { id: 'cmd_balance', title: 'Mi billetera' },
+      ]);
       return;
     }
 
     if (tx.status === 'REVERSED') {
-      await this.wa.sendTextMessage(from, 'Esta transacción ya fue devuelta.');
+      await this.wa.sendButtonMessage(from, 'Esta transacción ya fue devuelta.', [
+        { id: 'cmd_history', title: 'Ver movimientos' },
+        { id: 'cmd_balance', title: 'Mi billetera' },
+      ]);
       return;
     }
 
@@ -1306,7 +1353,14 @@ export class BotService {
         await deleteSession(from);
 
         if (!result.success) {
-          await this.wa.sendTextMessage(from, result.error || 'Error al procesar la devolución.');
+          await this.wa.sendButtonMessage(
+            from,
+            result.error || 'Error al procesar la devolución.',
+            [
+              { id: 'cmd_history', title: 'Movimientos' },
+              { id: 'cmd_balance', title: 'Mi billetera' },
+            ],
+          );
           return;
         }
 
@@ -1351,7 +1405,10 @@ export class BotService {
 
     const tx = await this.transactions.getTransactionByReference(ref, userId);
     if (!tx) {
-      await this.wa.sendTextMessage(from, 'Transacción no encontrada. Verifica la referencia.');
+      await this.wa.sendButtonMessage(from, 'Transacción no encontrada. Verifica la referencia.', [
+        { id: 'cmd_history', title: 'Ver movimientos' },
+        { id: 'cmd_balance', title: 'Mi billetera' },
+      ]);
       return;
     }
 

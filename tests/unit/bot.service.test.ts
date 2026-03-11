@@ -645,9 +645,10 @@ describe('BotService', () => {
 
       expect(mockUsers.setNewPin).toHaveBeenCalledWith(FROM, '483920');
       expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('actualizado'),
+        expect.any(Array),
       );
     });
 
@@ -867,7 +868,7 @@ describe('BotService', () => {
 
       await bot.handleMessage(FROM, '/kyc');
 
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('máximo'));
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('máximo'), expect.any(Array));
       expect(mockSetSession).not.toHaveBeenCalled();
     });
 
@@ -877,9 +878,10 @@ describe('BotService', () => {
 
       await bot.handleMessage(FROM, '/kyc');
 
-      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('INTERMEDIATE'),
+        expect.any(Array),
       );
       expect(mockSetSession).not.toHaveBeenCalled();
     });
@@ -1437,7 +1439,7 @@ describe('BotService — /recargar → TOPUP flow', () => {
     );
   });
 
-  it('TOPUP_SELECT_AMOUNT: Khipu throws → sends error, deletes session, rethrows', async () => {
+  it('TOPUP_SELECT_AMOUNT: Khipu throws → sends error, deletes session', async () => {
     mockUsers.getUserByWaId.mockResolvedValue(mkUser());
     mockGetSession.mockResolvedValue(mkSession('TOPUP_SELECT_AMOUNT'));
     mockKhipu.createPayment.mockRejectedValue(new Error('Khipu API timeout'));
@@ -1445,9 +1447,10 @@ describe('BotService — /recargar → TOPUP flow', () => {
     await bot.handleMessage(FROM, 'topup_10000', 'topup_10000');
 
     expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
-      expect.stringContaining('Error al generar el link'),
+      expect.stringContaining('No pudimos generar'),
+      expect.any(Array),
     );
   });
 });
@@ -1509,9 +1512,10 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
     await bot.handleMessage(FROM, '+56987654321');
 
     // Should send the charge to the target phone
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       '56987654321',
       expect.stringContaining('whatpay.cl/p/ABC'),
+      expect.any(Array),
     );
     // Confirm to sender
     expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
@@ -1546,9 +1550,10 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
 
     await bot.handleMessage(FROM, '56987654321');
 
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       '56987654321',
       expect.stringContaining('Alguien'),
+      expect.any(Array),
     );
   });
 
@@ -1560,9 +1565,10 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
 
     await bot.handleMessage(FROM, '56987654321');
 
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       '56987654321',
       expect.stringContaining('whatpay.cl/p/DEF'),
+      expect.any(Array),
     );
     expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
   });
@@ -1590,9 +1596,10 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
 
     await bot.handleMessage(FROM, '56987654321');
 
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       '56987654321',
       expect.stringContaining('Juan'),
+      expect.any(Array),
     );
   });
 
@@ -1606,9 +1613,10 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
 
     await bot.handleMessage(FROM, '56987654321');
 
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       '56987654321',
       expect.stringContaining('Alguien'),
+      expect.any(Array),
     );
   });
 
@@ -1870,9 +1878,10 @@ describe('BotService — CHARGE_SEND_LINK flow', () => {
 
     await bot.handleMessage(FROM, '/recibo #WP-UNKNOWN');
 
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('no encontrada'),
+      expect.any(Array),
     );
   });
 
@@ -1965,9 +1974,10 @@ describe('refund flow', () => {
 
     await bot.handleMessage(FROM, '/devolver #WP-2026-NOTFOUND');
 
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('no encontrada'),
+      expect.any(Array),
     );
   });
 
@@ -1982,9 +1992,10 @@ describe('refund flow', () => {
 
     await bot.handleMessage(FROM, '/devolver #WP-2026-REF1');
 
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('Solo puedes devolver pagos que hayas recibido'),
+      expect.any(Array),
     );
   });
 
@@ -1999,9 +2010,10 @@ describe('refund flow', () => {
 
     await bot.handleMessage(FROM, '/devolver #WP-2026-REF2');
 
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('ya fue devuelta'),
+      expect.any(Array),
     );
   });
 
@@ -2142,9 +2154,10 @@ describe('refund flow', () => {
 
     await bot.handleMessage(FROM, '123456');
 
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
-      'Error al procesar la devolución.',
+      expect.stringContaining('Error al procesar la devolución'),
+      expect.any(Array),
     );
   });
 
@@ -2165,9 +2178,10 @@ describe('refund flow', () => {
     await bot.handleMessage(FROM, '123456');
 
     expect(mockDeleteSession).toHaveBeenCalledWith(FROM);
-    expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
+    expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('72 horas'),
+      expect.any(Array),
     );
   });
 });
