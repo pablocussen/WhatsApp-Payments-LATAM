@@ -1,10 +1,14 @@
 /**
  * Route-level tests for waitlist.routes.ts + admin waitlist.
- * Covers: POST /waitlist (public), GET /admin/waitlist (admin-protected).
+ * Covers: POST /waitlist (public), GET /admin/waitlist (admin-protected),
+ *         GET /waitlist/count, rate limiting.
  */
 
 const mockRedisSAdd = jest.fn();
 const mockRedisSMembers = jest.fn();
+const mockRedisSCard = jest.fn();
+const mockRedisIncr = jest.fn();
+const mockRedisExpire = jest.fn();
 const mockRedisSet = jest.fn();
 const mockRedisGet = jest.fn();
 const mockRedisDel = jest.fn();
@@ -23,6 +27,9 @@ jest.mock('../../src/config/database', () => ({
   getRedis: jest.fn().mockReturnValue({
     sAdd: (...args: unknown[]) => mockRedisSAdd(...args),
     sMembers: (...args: unknown[]) => mockRedisSMembers(...args),
+    sCard: (...args: unknown[]) => mockRedisSCard(...args),
+    incr: (...args: unknown[]) => mockRedisIncr(...args),
+    expire: (...args: unknown[]) => mockRedisExpire(...args),
     set: mockRedisSet,
     get: mockRedisGet,
     del: mockRedisDel,
@@ -64,6 +71,9 @@ afterAll(async () => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Default: rate limit not exceeded
+  mockRedisIncr.mockResolvedValue(1);
+  mockRedisExpire.mockResolvedValue(true);
 });
 
 describe('POST /api/v1/waitlist', () => {
@@ -110,6 +120,40 @@ describe('POST /api/v1/waitlist', () => {
   it('should reject empty body', async () => {
     const res = await client.post('/api/v1/waitlist', { body: '' });
     expect(res.status).toBe(400);
+  });
+
+  it('should rate limit after 5 signups per IP', async () => {
+    mockRedisIncr.mockResolvedValue(6);
+    const res = await client.post('/api/v1/waitlist', {
+      body: { email: 'spam@example.com' },
+    });
+    expect(res.status).toBe(429);
+    expect(mockRedisSAdd).not.toHaveBeenCalled();
+  });
+
+  it('should fail-open when rate limit Redis throws', async () => {
+    mockRedisIncr.mockRejectedValue(new Error('Redis down'));
+    mockRedisSAdd.mockResolvedValue(1);
+    const res = await client.post('/api/v1/waitlist', {
+      body: { email: 'ok@example.com' },
+    });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('GET /api/v1/waitlist/count', () => {
+  it('should return signup count', async () => {
+    mockRedisSCard.mockResolvedValue(42);
+    const res = await client.get('/api/v1/waitlist/count');
+    expect(res.status).toBe(200);
+    expect((res.body as Record<string, unknown>).count).toBe(42);
+  });
+
+  it('should return 0 when no signups', async () => {
+    mockRedisSCard.mockResolvedValue(0);
+    const res = await client.get('/api/v1/waitlist/count');
+    expect(res.status).toBe(200);
+    expect((res.body as Record<string, unknown>).count).toBe(0);
   });
 });
 

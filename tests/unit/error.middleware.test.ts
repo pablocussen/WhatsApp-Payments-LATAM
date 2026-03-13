@@ -148,6 +148,29 @@ describe('errorHandler — ZodError', () => {
   });
 });
 
+// ─── JSON Parse Error (malformed body) ───────────────────
+
+describe('errorHandler — JSON SyntaxError (PARSE_ERROR)', () => {
+  it('returns 400 PARSE_ERROR for malformed JSON body', () => {
+    const err = new SyntaxError('Unexpected token x in JSON at position 0');
+    (err as SyntaxError & { status: number }).status = 400;
+    const res = mockRes();
+    errorHandler(err, mockReq(), res, noop);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Cuerpo de la solicitud inválido.',
+      code: 'PARSE_ERROR',
+    });
+  });
+
+  it('does not catch SyntaxError without status 400 (falls to 500)', () => {
+    const err = new SyntaxError('Some other syntax error');
+    const res = mockRes();
+    errorHandler(err, mockReq(), res, noop);
+    expect(res.status).toHaveBeenCalledWith(500);
+  });
+});
+
 // ─── Unknown errors → 500 ────────────────────────────────
 
 describe('errorHandler — unknown errors (500)', () => {

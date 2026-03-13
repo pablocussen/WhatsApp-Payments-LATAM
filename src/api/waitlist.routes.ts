@@ -18,13 +18,26 @@ const emailSchema = z.object({
 router.post(
   '/waitlist',
   asyncHandler(async (req: Request, res: Response) => {
+    // Per-IP rate limit: 5 signups/hour
+    const ip = req.ip || 'unknown';
+    const rlKey = `rl:waitlist:${ip}`;
+    const redis = getRedis();
+    try {
+      const count = await redis.incr(rlKey);
+      if (count === 1) await redis.expire(rlKey, 3600);
+      if (count > 5) {
+        return res.status(429).json({ error: 'Demasiados intentos. Intenta en una hora.' });
+      }
+    } catch {
+      // fail-open: allow if Redis rate limit check fails
+    }
+
     const parsed = emailSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Email inválido.' });
     }
 
     const email = parsed.data.email;
-    const redis = getRedis();
     const added = await redis.sAdd(WAITLIST_KEY, email);
 
     if (added === 0) {
@@ -33,6 +46,17 @@ router.post(
 
     log.info('Waitlist signup', { email: email.replace(/(.{2}).*@/, '$1***@') });
     return res.json({ status: 'ok', message: '¡Te avisaremos cuando lancemos!' });
+  }),
+);
+
+// ─── Public: Waitlist Count ────────────────────────────
+
+router.get(
+  '/waitlist/count',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const redis = getRedis();
+    const count = await redis.sCard(WAITLIST_KEY);
+    return res.json({ count });
   }),
 );
 
