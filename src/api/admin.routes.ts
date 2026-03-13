@@ -427,4 +427,16 @@ router.get(
   }),
 );
 
+// ─── Waitlist (emails collected from landing page) ──────
+
+router.get(
+  '/waitlist',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const { getRedis } = await import('../config/database');
+    const redis = getRedis();
+    const emails = await redis.sMembers('waitlist:emails');
+    return res.json({ count: emails.length, emails: emails.sort() });
+  }),
+);
+
 export default router;

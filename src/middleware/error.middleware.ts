@@ -79,6 +79,15 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     return;
   }
 
+  // JSON parse errors (malformed body)
+  if (err instanceof SyntaxError && 'status' in err && (err as { status: number }).status === 400) {
+    res.status(400).json({
+      error: 'Cuerpo de la solicitud inválido.',
+      code: 'PARSE_ERROR',
+    });
+    return;
+  }
+
   // Zod validation errors
   if (err instanceof ZodError) {
     const messages = err.errors.map((e) => `${e.path.join('.')}: ${e.message}`);

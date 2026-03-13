@@ -15,6 +15,7 @@ import paymentRoutes from './payment.routes';
 import merchantRoutes from './merchant.routes';
 import topupRoutes from './topup.routes';
 import adminRoutes from './admin.routes';
+import waitlistRoutes from './waitlist.routes';
 import { SchedulerService } from '../services/scheduler.service';
 
 const log = createLogger('server');
@@ -38,7 +39,7 @@ app.use(
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   }),
 );
-app.use(cors({ origin: env.APP_BASE_URL }));
+app.use(cors({ origin: [env.APP_BASE_URL, 'https://cussen.cl', 'https://cussen-46735.web.app'] }));
 app.use(express.json({ limit: '1mb' }));
 app.use(rateLimit(100, 60_000));
 
@@ -113,6 +114,7 @@ app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/merchants', merchantRoutes);
 app.use('/api/v1/topup', topupRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1', waitlistRoutes);
 
 // ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 
