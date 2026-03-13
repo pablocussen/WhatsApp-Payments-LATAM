@@ -235,6 +235,91 @@ describe('WhatsAppService — sendPaymentConfirmation', () => {
   });
 });
 
+// ─── markAsRead ─────────────────────────────────────────
+
+describe('WhatsAppService — markAsRead', () => {
+  let svc: FastWhatsAppService;
+
+  beforeEach(() => {
+    svc = new FastWhatsAppService();
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(okResponse);
+  });
+
+  it('POSTs with status read and message_id', async () => {
+    await svc.markAsRead('wamid.ABC123');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://graph.facebook.com/v18.0/test-phone-id/messages',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const body = lastCallBody();
+    expect(body.messaging_product).toBe('whatsapp');
+    expect(body.status).toBe('read');
+    expect(body.message_id).toBe('wamid.ABC123');
+  });
+
+  it('does not throw on network failure (fire-and-forget)', async () => {
+    mockFetch.mockRejectedValue(new Error('Network error'));
+    await expect(svc.markAsRead('wamid.FAIL')).resolves.toBeUndefined();
+  });
+});
+
+// ─── sendTypingIndicator ────────────────────────────────
+
+describe('WhatsAppService — sendTypingIndicator', () => {
+  let svc: FastWhatsAppService;
+
+  beforeEach(() => {
+    svc = new FastWhatsAppService();
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(okResponse);
+  });
+
+  it('POSTs with status typing and recipient', async () => {
+    await svc.sendTypingIndicator('56912345678');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://graph.facebook.com/v18.0/test-phone-id/messages',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const body = lastCallBody();
+    expect(body.messaging_product).toBe('whatsapp');
+    expect(body.status).toBe('typing');
+    expect(body.recipient_type).toBe('individual');
+    expect(body.to).toBe('56912345678');
+  });
+
+  it('does not throw on network failure (fire-and-forget)', async () => {
+    mockFetch.mockRejectedValue(new Error('Network error'));
+    await expect(svc.sendTypingIndicator('56912345678')).resolves.toBeUndefined();
+  });
+});
+
+// ─── sendPaymentConfirmation — timezone ─────────────────
+
+describe('WhatsAppService — sendPaymentConfirmation timezone', () => {
+  let svc: FastWhatsAppService;
+
+  beforeEach(() => {
+    svc = new FastWhatsAppService();
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(okResponse);
+  });
+
+  it('uses Chilean timezone (America/Santiago) for date formatting', async () => {
+    await svc.sendPaymentConfirmation('56912345678', 25_000, 'María', '#WP-REF-TZ');
+    const body = lastCallBody();
+    // The message body should contain "Fecha:" followed by a date string.
+    // Verify the date is formatted using es-CL locale by checking for expected
+    // Chilean date patterns (dd-mm-yyyy or dd/mm/yyyy depending on runtime).
+    expect(body.text.body).toContain('Fecha:');
+    // Validate the actual timezone by generating the expected date independently
+    const expectedDate = new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' });
+    expect(body.text.body).toContain(expectedDate);
+  });
+});
+
 // ─── DLQ Static Methods ─────────────────────────────────
 
 describe('WhatsAppService — DLQ operations', () => {

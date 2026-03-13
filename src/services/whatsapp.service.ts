@@ -80,6 +80,19 @@ export class WhatsAppService {
     this.apiToken = env.WHATSAPP_API_TOKEN;
   }
 
+  /** Show "typing..." indicator — fire-and-forget */
+  async sendTypingIndicator(to: string): Promise<void> {
+    const url = `${this.apiUrl}/${this.phoneNumberId}/messages`;
+    try {
+      await fetch(url, {
+        method: 'POST',
+        signal: AbortSignal.timeout(3_000),
+        headers: { Authorization: `Bearer ${this.apiToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to, status: 'typing' }),
+      });
+    } catch { /* best-effort */ }
+  }
+
   /** Mark a message as read (blue ticks) — fire-and-forget */
   async markAsRead(messageId: string): Promise<void> {
     const url = `${this.apiUrl}/${this.phoneNumberId}/messages`;
@@ -175,7 +188,7 @@ export class WhatsAppService {
       `────────────────────`,
       `${formattedAmount} -> ${receiverName}`,
       `Ref: ${reference}`,
-      `Fecha: ${new Date().toLocaleString('es-CL')}`,
+      `Fecha: ${new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' })}`,
       `────────────────────`,
     ].join('\n');
 
