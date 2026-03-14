@@ -5,6 +5,7 @@
  */
 
 const mockRedisSAdd = jest.fn();
+const mockRedisSRem = jest.fn();
 const mockRedisSMembers = jest.fn();
 const mockRedisSCard = jest.fn();
 const mockRedisIncr = jest.fn();
@@ -26,6 +27,7 @@ jest.mock('../../src/config/environment', () => ({
 jest.mock('../../src/config/database', () => ({
   getRedis: jest.fn().mockReturnValue({
     sAdd: (...args: unknown[]) => mockRedisSAdd(...args),
+    sRem: (...args: unknown[]) => mockRedisSRem(...args),
     sMembers: (...args: unknown[]) => mockRedisSMembers(...args),
     sCard: (...args: unknown[]) => mockRedisSCard(...args),
     incr: (...args: unknown[]) => mockRedisIncr(...args),
@@ -188,5 +190,47 @@ describe('GET /api/v1/admin/waitlist', () => {
     });
     expect(res.status).toBe(200);
     expect((res.body as Record<string, unknown>).count).toBe(0);
+  });
+});
+
+describe('DELETE /api/v1/admin/waitlist/:email', () => {
+  it('should remove email from waitlist', async () => {
+    mockRedisSRem.mockResolvedValue(1);
+    const res = await client.delete('/api/v1/admin/waitlist/test@example.com', {
+      headers: { 'x-admin-key': ADMIN_KEY },
+    });
+    expect(res.status).toBe(200);
+    expect((res.body as Record<string, unknown>).message).toBe('Email removed.');
+  });
+
+  it('should return 404 for non-existent email', async () => {
+    mockRedisSRem.mockResolvedValue(0);
+    const res = await client.delete('/api/v1/admin/waitlist/nobody@example.com', {
+      headers: { 'x-admin-key': ADMIN_KEY },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('should reject without admin key', async () => {
+    const res = await client.delete('/api/v1/admin/waitlist/test@example.com');
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('GET /api/v1/admin/waitlist/export', () => {
+  it('should return CSV with emails', async () => {
+    mockRedisSMembers.mockResolvedValue(['z@b.com', 'a@b.com']);
+    const res = await client.get('/api/v1/admin/waitlist/export', {
+      headers: { 'x-admin-key': ADMIN_KEY },
+    });
+    expect(res.status).toBe(200);
+    const text = typeof res.body === 'string' ? res.body : JSON.stringify(res.body);
+    expect(text).toContain('email');
+    expect(text).toContain('a@b.com');
+  });
+
+  it('should reject without admin key', async () => {
+    const res = await client.get('/api/v1/admin/waitlist/export');
+    expect(res.status).toBe(401);
   });
 });

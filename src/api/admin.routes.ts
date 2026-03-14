@@ -439,4 +439,29 @@ router.get(
   }),
 );
 
+router.delete(
+  '/waitlist/:email',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { getRedis } = await import('../config/database');
+    const redis = getRedis();
+    const removed = await redis.sRem('waitlist:emails', req.params.email.toLowerCase().trim());
+    if (removed === 0) return res.status(404).json({ error: 'Email not found in waitlist.' });
+    log.info('Waitlist email removed', { email: req.params.email, adminIp: req.ip });
+    return res.json({ message: 'Email removed.', email: req.params.email });
+  }),
+);
+
+router.get(
+  '/waitlist/export',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const { getRedis } = await import('../config/database');
+    const redis = getRedis();
+    const emails = await redis.sMembers('waitlist:emails');
+    const csv = ['email', ...emails.sort()].join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="waitlist-${new Date().toISOString().slice(0, 10)}.csv"`);
+    return res.send(csv);
+  }),
+);
+
 export default router;
