@@ -18,6 +18,7 @@ import adminRoutes from './admin.routes';
 import waitlistRoutes from './waitlist.routes';
 import referralRoutes from './referral.routes';
 import loyaltyRoutes from './loyalty.routes';
+import promotionsRoutes from './promotions.routes';
 import { SchedulerService } from '../services/scheduler.service';
 
 const log = createLogger('server');
@@ -119,6 +120,7 @@ app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1', waitlistRoutes);
 app.use('/api/v1', referralRoutes);
 app.use('/api/v1', loyaltyRoutes);
+app.use('/api/v1', promotionsRoutes);
 
 // ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 

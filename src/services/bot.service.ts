@@ -21,6 +21,7 @@ import { activity } from './activity.service';
 import { AuditService } from './audit.service';
 import { referral as referralSvc } from './referral.service';
 import { loyalty as loyaltySvc } from './loyalty.service';
+import { promotions as promoSvc } from './promotion.service';
 
 const log = createLogger('bot-service');
 
@@ -341,6 +342,10 @@ export class BotService {
     if (/^(\/devolver|devolver|devoluci[oó]n|reembolso)/i.test(n)) return 'refund';
     if (n.startsWith('devolver ')) return 'refund';
 
+    // ── Promotions ───────────────────────────────────────
+    if (/^(\/promo|promo|descuento|promoci[oó]n|c[oó]digo\s*de\s*descuento)/i.test(n)) return 'promo';
+    if (n.startsWith('promo ') || n.startsWith('/promo ')) return 'promo';
+
     // ── Loyalty / Points ─────────────────────────────────
     if (/^(\/puntos|puntos|mis\s*puntos|puntos\s*wh?at|lealtad|fidelidad|recompensas?|tier|nivel\s*de\s*puntos)/i.test(n))
       return 'points';
@@ -426,6 +431,8 @@ export class BotService {
         return this.showReceipt(from, userId, rawText);
       case 'refund':
         return this.startRefundFlow(from, userId, rawText);
+      case 'promo':
+        return this.showPromo(from, userId, rawText);
       case 'points':
         return this.showPoints(from, userId);
       case 'invite':
@@ -1523,6 +1530,98 @@ export class BotService {
         { id: 'cmd_balance', title: 'Mi billetera' },
       ],
     );
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  PROMOTIONS
+  // ═══════════════════════════════════════════════════════
+
+  private async showPromo(from: string, _userId: string, rawText: string): Promise<void> {
+    const code = rawText
+      .replace(/^(\/promo|promo)\s*/i, '')
+      .trim()
+      .toUpperCase();
+
+    if (!code) {
+      // No code given — list active promos
+      try {
+        const active = await promoSvc.listActive();
+        if (active.length === 0) {
+          await this.wa.sendButtonMessage(
+            from,
+            'No hay promociones activas en este momento.\n\nEscribe */promo CODIGO* para canjear un código.',
+            [{ id: 'cmd_pay', title: 'Enviar dinero' }],
+          );
+          return;
+        }
+        const lines = ['🎁 *Promociones activas*', ''];
+        for (const p of active.slice(0, 4)) {
+          const val = p.type === 'percentage' || p.type === 'cashback'
+            ? `${p.value}%` : `$${p.value.toLocaleString('es-CL')} CLP`;
+          lines.push(`• *${p.name}* — ${val}${p.code ? ` (código: ${p.code})` : ''}`);
+        }
+        lines.push('', 'Escribe */promo CODIGO* para aplicar.');
+        await this.wa.sendButtonMessage(from, lines.join('\n'), [
+          { id: 'cmd_pay', title: 'Enviar dinero' },
+          { id: 'cmd_balance', title: 'Mi billetera' },
+        ]);
+      } catch (err) {
+        log.warn('showPromo list error', { error: (err as Error).message });
+        await this.wa.sendButtonMessage(from, 'No pude cargar las promociones. Intenta de nuevo.', [
+          { id: 'cmd_balance', title: 'Mi billetera' },
+        ]);
+      }
+      return;
+    }
+
+    // Code given — validate it
+    try {
+      const promo = await promoSvc.findByCode(code);
+      if (!promo || !promo.active) {
+        await this.wa.sendButtonMessage(from, `El código *${code}* no es válido o ya expiró.`, [
+          { id: 'cmd_pay', title: 'Enviar dinero' },
+          { id: 'cmd_balance', title: 'Mi billetera' },
+        ]);
+        return;
+      }
+
+      const now = new Date().toISOString();
+      if (now > promo.endDate) {
+        await this.wa.sendButtonMessage(from, `El código *${code}* ya expiró.`, [
+          { id: 'cmd_pay', title: 'Enviar dinero' },
+        ]);
+        return;
+      }
+
+      const typeLabel: Record<string, string> = {
+        percentage: 'Descuento porcentual',
+        fixed: 'Descuento fijo',
+        cashback: 'Cashback',
+        free_fee: 'Sin comisión',
+      };
+      const val = promo.type === 'percentage' || promo.type === 'cashback'
+        ? `${promo.value}%` : `$${promo.value.toLocaleString('es-CL')} CLP`;
+
+      const lines = [
+        `✅ *Código ${code} válido*`,
+        '',
+        `Beneficio: *${typeLabel[promo.type] ?? promo.type}* — *${val}*`,
+        promo.description ? promo.description : '',
+        promo.minAmount > 0 ? `Monto mínimo: $${promo.minAmount.toLocaleString('es-CL')}` : '',
+        '',
+        'El descuento se aplicará automáticamente en tu próximo pago.',
+      ].filter(Boolean);
+
+      await this.wa.sendButtonMessage(from, lines.join('\n'), [
+        { id: 'cmd_pay', title: 'Enviar dinero ahora' },
+        { id: 'cmd_balance', title: 'Mi billetera' },
+      ]);
+    } catch (err) {
+      log.warn('showPromo validate error', { code, error: (err as Error).message });
+      await this.wa.sendButtonMessage(from, 'No pude validar el código en este momento.', [
+        { id: 'cmd_balance', title: 'Mi billetera' },
+      ]);
+    }
   }
 
   // ═══════════════════════════════════════════════════════
