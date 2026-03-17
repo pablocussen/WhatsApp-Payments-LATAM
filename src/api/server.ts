@@ -16,6 +16,7 @@ import merchantRoutes from './merchant.routes';
 import topupRoutes from './topup.routes';
 import adminRoutes from './admin.routes';
 import waitlistRoutes from './waitlist.routes';
+import referralRoutes from './referral.routes';
 import { SchedulerService } from '../services/scheduler.service';
 
 const log = createLogger('server');
@@ -115,6 +116,7 @@ app.use('/api/v1/merchants', merchantRoutes);
 app.use('/api/v1/topup', topupRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1', waitlistRoutes);
+app.use('/api/v1', referralRoutes);
 
 // ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 

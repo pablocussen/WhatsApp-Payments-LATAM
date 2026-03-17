@@ -19,6 +19,7 @@ import { env } from '../config/environment';
 import { notificationPrefs } from './notification-prefs.service';
 import { activity } from './activity.service';
 import { AuditService } from './audit.service';
+import { referral as referralSvc } from './referral.service';
 
 const log = createLogger('bot-service');
 
@@ -339,6 +340,10 @@ export class BotService {
     if (/^(\/devolver|devolver|devoluci[oó]n|reembolso)/i.test(n)) return 'refund';
     if (n.startsWith('devolver ')) return 'refund';
 
+    // ── Invite / Referral ────────────────────────────────
+    if (/^(\/invitar|invitar|referido|mi\s*c[oó]digo|compartir|c[oó]digo\s*de\s*referido)/i.test(n))
+      return 'invite';
+
     // ── Mute ─────────────────────────────────────────────
     if (/^(\/silenciar|silenciar|silencio|notificaciones)/i.test(n)) return 'mute';
 
@@ -416,6 +421,8 @@ export class BotService {
         return this.showReceipt(from, userId, rawText);
       case 'refund':
         return this.startRefundFlow(from, userId, rawText);
+      case 'invite':
+        return this.showInvite(from, userId);
       case 'mute':
         return this.toggleMute(from, userId);
       case 'quiethours':
@@ -1499,6 +1506,44 @@ export class BotService {
         { id: 'cmd_balance', title: 'Mi billetera' },
       ],
     );
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  INVITE / REFERRAL
+  // ═══════════════════════════════════════════════════════
+
+  private async showInvite(from: string, userId: string): Promise<void> {
+    try {
+      const codeObj = await referralSvc.generateCode(userId);
+      const stats = await referralSvc.getStats(userId);
+      const shareLink = `${env.APP_BASE_URL}/invita/${codeObj.code}`;
+
+      const lines = [
+        '🎁 *Tu código de referido*',
+        '',
+        `Código: *${codeObj.code}*`,
+        `Link: ${shareLink}`,
+        '',
+        'Cuando un amigo se registre con tu código:',
+        `• Tú ganas *$${codeObj.rewardPerReferral.toLocaleString('es-CL')} CLP*`,
+        `• Tu amigo recibe *$${codeObj.rewardForReferred.toLocaleString('es-CL')} CLP* de bienvenida`,
+        '',
+        `📊 Tus referidos: *${stats.completedReferrals}* completados`,
+        `💰 Total ganado: *$${stats.totalEarned.toLocaleString('es-CL')} CLP*`,
+      ];
+
+      await this.wa.sendButtonMessage(from, lines.join('\n'), [
+        { id: 'cmd_pay', title: 'Enviar dinero' },
+        { id: 'cmd_balance', title: 'Mi billetera' },
+      ]);
+    } catch (err) {
+      log.warn('showInvite error', { userId, error: (err as Error).message });
+      await this.wa.sendButtonMessage(
+        from,
+        'No pude cargar tu código en este momento. Intenta de nuevo.',
+        [{ id: 'cmd_balance', title: 'Mi billetera' }],
+      );
+    }
   }
 
   private async sendHelp(from: string, name: string | null, userId?: string): Promise<void> {
