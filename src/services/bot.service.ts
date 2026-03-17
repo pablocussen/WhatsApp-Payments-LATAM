@@ -20,6 +20,7 @@ import { notificationPrefs } from './notification-prefs.service';
 import { activity } from './activity.service';
 import { AuditService } from './audit.service';
 import { referral as referralSvc } from './referral.service';
+import { loyalty as loyaltySvc } from './loyalty.service';
 
 const log = createLogger('bot-service');
 
@@ -340,6 +341,10 @@ export class BotService {
     if (/^(\/devolver|devolver|devoluci[oó]n|reembolso)/i.test(n)) return 'refund';
     if (n.startsWith('devolver ')) return 'refund';
 
+    // ── Loyalty / Points ─────────────────────────────────
+    if (/^(\/puntos|puntos|mis\s*puntos|puntos\s*wh?at|lealtad|fidelidad|recompensas?|tier|nivel\s*de\s*puntos)/i.test(n))
+      return 'points';
+
     // ── Invite / Referral ────────────────────────────────
     if (/^(\/invitar|invitar|referido|mi\s*c[oó]digo|compartir|c[oó]digo\s*de\s*referido)/i.test(n))
       return 'invite';
@@ -421,6 +426,8 @@ export class BotService {
         return this.showReceipt(from, userId, rawText);
       case 'refund':
         return this.startRefundFlow(from, userId, rawText);
+      case 'points':
+        return this.showPoints(from, userId);
       case 'invite':
         return this.showInvite(from, userId);
       case 'mute':
@@ -659,6 +666,16 @@ export class BotService {
         });
 
         await deleteSession(from);
+
+        // Earn loyalty points fire-and-forget (fail-open)
+        if (payment.success && payment.reference) {
+          loyaltySvc.earnPoints(
+            userId,
+            sdn(session.data, 'amount'),
+            payment.reference,
+            `Pago a ${sd(session.data, 'receiverName')}`,
+          ).catch(() => { /* fail-open */ });
+        }
 
         if (!payment.success) {
           await this.wa.sendButtonMessage(
@@ -1506,6 +1523,59 @@ export class BotService {
         { id: 'cmd_balance', title: 'Mi billetera' },
       ],
     );
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  LOYALTY POINTS
+  // ═══════════════════════════════════════════════════════
+
+  private async showPoints(from: string, userId: string): Promise<void> {
+    const TIER_EMOJI: Record<string, string> = {
+      BRONCE: '🥉',
+      PLATA: '🥈',
+      ORO: '🥇',
+      PLATINO: '💎',
+    };
+
+    try {
+      const [account, tierInfo] = await Promise.all([
+        loyaltySvc.getAccount(userId),
+        loyaltySvc.getTierInfo(userId),
+      ]);
+
+      const emoji = TIER_EMOJI[account.tier] ?? '🎖️';
+      const lines = [
+        `${emoji} *Mis puntos WhatPay*`,
+        '',
+        `Tier: *${account.tier}*`,
+        `Puntos disponibles: *${account.points.toLocaleString('es-CL')}*`,
+        `Puntos de vida: *${account.lifetimePoints.toLocaleString('es-CL')}*`,
+        `Multiplicador: *×${tierInfo.multiplier}*`,
+      ];
+
+      if (tierInfo.nextTier) {
+        lines.push('');
+        lines.push(`Faltan *${tierInfo.pointsToNext.toLocaleString('es-CL')}* pts para ${TIER_EMOJI[tierInfo.nextTier]} ${tierInfo.nextTier}`);
+      } else {
+        lines.push('');
+        lines.push('🏆 ¡Estás en el nivel máximo!');
+      }
+
+      lines.push('');
+      lines.push('Ganas *1 punto por cada $100 CLP* pagados.');
+
+      await this.wa.sendButtonMessage(from, lines.join('\n'), [
+        { id: 'cmd_pay', title: 'Enviar dinero' },
+        { id: 'cmd_balance', title: 'Mi billetera' },
+      ]);
+    } catch (err) {
+      log.warn('showPoints error', { userId, error: (err as Error).message });
+      await this.wa.sendButtonMessage(
+        from,
+        'No pude cargar tus puntos en este momento. Intenta de nuevo.',
+        [{ id: 'cmd_balance', title: 'Mi billetera' }],
+      );
+    }
   }
 
   // ═══════════════════════════════════════════════════════
