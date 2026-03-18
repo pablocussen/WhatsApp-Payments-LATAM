@@ -19,6 +19,9 @@ import waitlistRoutes from './waitlist.routes';
 import referralRoutes from './referral.routes';
 import loyaltyRoutes from './loyalty.routes';
 import promotionsRoutes from './promotions.routes';
+import disputeRoutes from './dispute.routes';
+import kycRoutes from './kyc.routes';
+import merchantOnboardingRoutes from './merchant-onboarding.routes';
 import { SchedulerService } from '../services/scheduler.service';
 
 const log = createLogger('server');
@@ -121,6 +124,9 @@ app.use('/api/v1', waitlistRoutes);
 app.use('/api/v1', referralRoutes);
 app.use('/api/v1', loyaltyRoutes);
 app.use('/api/v1', promotionsRoutes);
+app.use('/api/v1', disputeRoutes);
+app.use('/api/v1', kycRoutes);
+app.use('/api/v1', merchantOnboardingRoutes);
 
 // ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 
