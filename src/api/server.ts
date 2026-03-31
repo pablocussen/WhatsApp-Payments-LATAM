@@ -28,6 +28,10 @@ import beneficiaryRoutes from './beneficiary.routes';
 import notificationTemplatesRoutes from './notification-templates.routes';
 import scheduledReportsRoutes from './scheduled-reports.routes';
 import complianceRoutes from './compliance.routes';
+import feeConfigRoutes from './fee-config.routes';
+import settlementRoutes from './settlement.routes';
+import analyticsRoutes from './analytics.routes';
+import transactionExportRoutes from './transaction-export.routes';
 import { SchedulerService } from '../services/scheduler.service';
 
 const log = createLogger('server');
@@ -139,6 +143,10 @@ app.use('/api/v1', beneficiaryRoutes);
 app.use('/api/v1', notificationTemplatesRoutes);
 app.use('/api/v1', scheduledReportsRoutes);
 app.use('/api/v1', complianceRoutes);
+app.use('/api/v1', feeConfigRoutes);
+app.use('/api/v1', settlementRoutes);
+app.use('/api/v1', analyticsRoutes);
+app.use('/api/v1', transactionExportRoutes);
 
 // ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 

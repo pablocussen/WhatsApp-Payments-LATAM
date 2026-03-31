@@ -146,6 +146,8 @@ export class TransactionExportService {
   /**
    * Get an export job by ID.
    */
+  async getExportJob(jobId: string): Promise<ExportJob | null> { return this.getJob(jobId); }
+
   async getJob(jobId: string): Promise<ExportJob | null> {
     try {
       const redis = getRedis();
