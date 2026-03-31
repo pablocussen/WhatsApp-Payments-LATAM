@@ -25,6 +25,9 @@ import merchantOnboardingRoutes from './merchant-onboarding.routes';
 import userPrefsRoutes from './user-prefs.routes';
 import spendingLimitsRoutes from './spending-limits.routes';
 import beneficiaryRoutes from './beneficiary.routes';
+import notificationTemplatesRoutes from './notification-templates.routes';
+import scheduledReportsRoutes from './scheduled-reports.routes';
+import complianceRoutes from './compliance.routes';
 import { SchedulerService } from '../services/scheduler.service';
 
 const log = createLogger('server');
@@ -133,6 +136,9 @@ app.use('/api/v1', merchantOnboardingRoutes);
 app.use('/api/v1', userPrefsRoutes);
 app.use('/api/v1', spendingLimitsRoutes);
 app.use('/api/v1', beneficiaryRoutes);
+app.use('/api/v1', notificationTemplatesRoutes);
+app.use('/api/v1', scheduledReportsRoutes);
+app.use('/api/v1', complianceRoutes);
 
 // ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 
