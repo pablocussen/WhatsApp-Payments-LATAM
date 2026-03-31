@@ -32,6 +32,9 @@ import feeConfigRoutes from './fee-config.routes';
 import settlementRoutes from './settlement.routes';
 import analyticsRoutes from './analytics.routes';
 import transactionExportRoutes from './transaction-export.routes';
+import merchantAnalyticsRoutes from './merchant-analytics.routes';
+import merchantWebhookRoutes from './merchant-webhook.routes';
+import contactsRoutes from './contacts.routes';
 import { SchedulerService } from '../services/scheduler.service';
 
 const log = createLogger('server');
@@ -147,6 +150,9 @@ app.use('/api/v1', feeConfigRoutes);
 app.use('/api/v1', settlementRoutes);
 app.use('/api/v1', analyticsRoutes);
 app.use('/api/v1', transactionExportRoutes);
+app.use('/api/v1', merchantAnalyticsRoutes);
+app.use('/api/v1', merchantWebhookRoutes);
+app.use('/api/v1', contactsRoutes);
 
 // ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 
