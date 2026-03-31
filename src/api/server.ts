@@ -41,7 +41,9 @@ import currencyRoutes from './currency.routes';
 import notificationPrefsRoutes from './notification-prefs.routes';
 import receiptRoutes from './receipt.routes';
 import recurringPaymentRoutes from './recurring-payment.routes';
+import platformStatusRoutes from './platform-status.routes';
 import { SchedulerService } from '../services/scheduler.service';
+import { metricsMiddleware } from '../middleware/metrics.middleware';
 
 const log = createLogger('server');
 const scheduler = new SchedulerService();
@@ -67,6 +69,8 @@ app.use(
 app.use(cors({ origin: [env.APP_BASE_URL, 'https://cussen.cl', 'https://cussen-46735.web.app'] }));
 app.use(express.json({ limit: '1mb' }));
 app.use(rateLimit(100, 60_000));
+
+app.use(metricsMiddleware);
 
 // ─── Request Logging ────────────────────────────────────
 
@@ -165,6 +169,7 @@ app.use('/api/v1', currencyRoutes);
 app.use('/api/v1', notificationPrefsRoutes);
 app.use('/api/v1', receiptRoutes);
 app.use('/api/v1', recurringPaymentRoutes);
+app.use('/api/v1', platformStatusRoutes);
 
 // ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 
