@@ -35,6 +35,12 @@ import transactionExportRoutes from './transaction-export.routes';
 import merchantAnalyticsRoutes from './merchant-analytics.routes';
 import merchantWebhookRoutes from './merchant-webhook.routes';
 import contactsRoutes from './contacts.routes';
+import activityRoutes from './activity.routes';
+import apiKeyRoutes from './api-key.routes';
+import currencyRoutes from './currency.routes';
+import notificationPrefsRoutes from './notification-prefs.routes';
+import receiptRoutes from './receipt.routes';
+import recurringPaymentRoutes from './recurring-payment.routes';
 import { SchedulerService } from '../services/scheduler.service';
 
 const log = createLogger('server');
@@ -153,6 +159,12 @@ app.use('/api/v1', transactionExportRoutes);
 app.use('/api/v1', merchantAnalyticsRoutes);
 app.use('/api/v1', merchantWebhookRoutes);
 app.use('/api/v1', contactsRoutes);
+app.use('/api/v1', activityRoutes);
+app.use('/api/v1', apiKeyRoutes);
+app.use('/api/v1', currencyRoutes);
+app.use('/api/v1', notificationPrefsRoutes);
+app.use('/api/v1', receiptRoutes);
+app.use('/api/v1', recurringPaymentRoutes);
 
 // ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 

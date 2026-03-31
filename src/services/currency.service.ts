@@ -50,6 +50,21 @@ export class CurrencyService {
   }
 
   /**
+   * Get all available exchange rates.
+   * Tries Redis cache first, falls back to default rates.
+   */
+  async getRates(): Promise<Record<string, number>> {
+    try {
+      const redis = getRedis();
+      const cached = await redis.get(RATE_CACHE_KEY);
+      if (cached) return JSON.parse(cached) as Record<string, number>;
+    } catch {
+      // Redis unavailable, use defaults
+    }
+    return { ...DEFAULT_RATES };
+  }
+
+  /**
    * Get exchange rate between two currencies.
    * Tries Redis cache first, falls back to default rates.
    */
