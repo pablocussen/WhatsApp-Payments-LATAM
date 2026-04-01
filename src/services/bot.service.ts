@@ -22,6 +22,10 @@ import { AuditService } from './audit.service';
 import { referral as referralSvc } from './referral.service';
 import { loyalty as loyaltySvc } from './loyalty.service';
 import { promotions as promoSvc } from './promotion.service';
+import { qrPayment } from './qr-payment.service';
+import { splitPayment } from './split-payment.service';
+import { scheduledTransfer } from './scheduled-transfer.service';
+import { paymentRequest } from './payment-request.service';
 
 const log = createLogger('bot-service');
 
@@ -361,6 +365,18 @@ export class BotService {
     if (/^(\/horario|horario\s*silencioso)/i.test(n)) return 'quiethours';
     if (n.startsWith('horario ')) return 'quiethours';
 
+    // ── QR Payment ────────────────────────────────────────
+    if (/^(\/qr|qr|c[oó]digo\s*qr|generar\s*qr|crear\s*qr|mi\s*qr)/i.test(n)) return 'qr';
+
+    // ── Split Payment ───────────────────────────────────
+    if (/^(\/dividir|dividir|split|dividir\s*cuenta|vamos\s*a\s*dividir|repartir|hacer\s*vaca|la\s*vaca)/i.test(n)) return 'split';
+
+    // ── Scheduled Transfer ──────────────────────────────
+    if (/^(\/programar|programar|agendar|pago\s*programado|programar\s*pago|transferencia\s*programada)/i.test(n)) return 'scheduled';
+
+    // ── Payment Request ─────────────────────────────────
+    if (/^(\/solicitar|solicitar|pedir\s*plata|solicitar\s*pago|me\s*debes|ped[ií]r\s*dinero)/i.test(n)) return 'request';
+
     // ── Gratitude → show menu ────────────────────────────
     if (/^(gracias|thanks|vale|listo|genial|ok|dale|perfect[oa]?|buena|bac[aá]n|sipo|ya)$/i.test(n))
       return 'help';
@@ -441,6 +457,14 @@ export class BotService {
         return this.toggleMute(from, userId);
       case 'quiethours':
         return this.handleQuietHours(from, userId, rawText);
+      case 'qr':
+        return this.showQr(from, userId);
+      case 'split':
+        return this.showSplit(from, userId);
+      case 'scheduled':
+        return this.showScheduled(from, userId);
+      case 'request':
+        return this.showRequest(from, userId);
     }
   }
 
@@ -1803,6 +1827,166 @@ export class BotService {
         'Horas inválidas. Usa valores entre 0 y 23.\nEj: horario 23-7',
         [{ id: 'cmd_balance', title: 'Mi billetera' }],
       );
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  QR PAYMENTS
+  // ═══════════════════════════════════════════════════════
+
+  private async showQr(from: string, userId: string): Promise<void> {
+    try {
+      const qrs = await qrPayment.getUserQrs(userId);
+      const active = qrs.filter(q => q.status === 'active');
+
+      if (active.length === 0) {
+        // Generate a new static QR for this user
+        const qr = await qrPayment.generateQr({
+          createdBy: userId,
+          type: 'static',
+        });
+        const scanUrl = qrPayment.getQrPayload(qr.reference, env.APP_BASE_URL);
+        await this.wa.sendButtonMessage(
+          from,
+          `*Tu código QR para recibir pagos*\n\nCódigo: *${qr.reference}*\nURL: ${scanUrl}\n\nComparte este código para que te paguen. Funciona ilimitadamente.`,
+          [
+            { id: 'cmd_balance', title: 'Mi billetera' },
+            { id: 'cmd_qr', title: 'Nuevo QR' },
+          ],
+        );
+      } else {
+        const qr = active[0];
+        const scanUrl = qrPayment.getQrPayload(qr.reference, env.APP_BASE_URL);
+        const amountStr = qr.amount ? ` por ${formatCLP(qr.amount)}` : ' (monto libre)';
+        await this.wa.sendButtonMessage(
+          from,
+          `*Tu QR activo${amountStr}*\n\nCódigo: *${qr.reference}*\nTipo: ${qr.type === 'static' ? 'Reutilizable' : 'Un solo uso'}\nURL: ${scanUrl}\n\nTienes ${active.length} QR activo${active.length > 1 ? 's' : ''}.`,
+          [
+            { id: 'cmd_balance', title: 'Mi billetera' },
+            { id: 'cmd_pay', title: 'Enviar dinero' },
+          ],
+        );
+      }
+    } catch {
+      await this.wa.sendTextMessage(from, 'No pude generar tu QR. Intenta de nuevo.');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  SPLIT PAYMENTS
+  // ═══════════════════════════════════════════════════════
+
+  private async showSplit(from: string, userId: string): Promise<void> {
+    try {
+      const splits = await splitPayment.getUserSplits(userId);
+      const active = splits.filter(s => s.status === 'pending' || s.status === 'partial');
+
+      if (active.length === 0) {
+        await this.wa.sendButtonMessage(
+          from,
+          '*Dividir cuenta*\n\nNo tienes cuentas pendientes por dividir.\n\nPara crear una, usa la app o API:\nPOST /api/v1/splits',
+          [
+            { id: 'cmd_pay', title: 'Enviar dinero' },
+            { id: 'cmd_balance', title: 'Mi billetera' },
+          ],
+        );
+      } else {
+        const latest = active[0];
+        const summary = splitPayment.formatSplitSummary(latest);
+        await this.wa.sendButtonMessage(
+          from,
+          `*Tus cuentas divididas*\n\nTienes ${active.length} pendiente${active.length > 1 ? 's' : ''}:\n\n${summary}`,
+          [
+            { id: 'cmd_balance', title: 'Mi billetera' },
+            { id: 'cmd_history', title: 'Historial' },
+          ],
+        );
+      }
+    } catch {
+      await this.wa.sendTextMessage(from, 'No pude cargar tus cuentas divididas.');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  SCHEDULED TRANSFERS
+  // ═══════════════════════════════════════════════════════
+
+  private async showScheduled(from: string, userId: string): Promise<void> {
+    try {
+      const transfers = await scheduledTransfer.getUserTransfers(userId);
+      const active = transfers.filter(t => t.status === 'scheduled');
+
+      if (active.length === 0) {
+        await this.wa.sendButtonMessage(
+          from,
+          '*Pagos programados*\n\nNo tienes pagos programados.\n\nPara crear uno, usa la app o API:\nPOST /api/v1/scheduled-transfers',
+          [
+            { id: 'cmd_pay', title: 'Enviar dinero' },
+            { id: 'cmd_balance', title: 'Mi billetera' },
+          ],
+        );
+      } else {
+        const lines = active.map(t =>
+          `• ${t.receiverName}: ${formatCLP(t.amount)} — ${t.frequency === 'once' ? t.scheduledDate : `cada ${t.frequency === 'weekly' ? 'semana' : t.frequency === 'biweekly' ? '2 semanas' : 'mes'}`}`,
+        ).join('\n');
+
+        await this.wa.sendButtonMessage(
+          from,
+          `*Pagos programados (${active.length})*\n\n${lines}`,
+          [
+            { id: 'cmd_balance', title: 'Mi billetera' },
+            { id: 'cmd_history', title: 'Historial' },
+          ],
+        );
+      }
+    } catch {
+      await this.wa.sendTextMessage(from, 'No pude cargar tus pagos programados.');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  PAYMENT REQUESTS
+  // ═══════════════════════════════════════════════════════
+
+  private async showRequest(from: string, userId: string): Promise<void> {
+    try {
+      const sent = await paymentRequest.getSentRequests(userId);
+      const pending = sent.filter(r => r.status === 'pending');
+      const received = await paymentRequest.getReceivedRequests(from);
+      const pendingReceived = received.filter(r => r.status === 'pending');
+
+      const lines: string[] = ['*Solicitudes de pago*\n'];
+
+      if (pendingReceived.length > 0) {
+        lines.push(`*Te piden (${pendingReceived.length}):*`);
+        for (const r of pendingReceived.slice(0, 5)) {
+          lines.push(`• ${r.requesterName}: ${formatCLP(r.amount)} — ${r.description}`);
+        }
+        lines.push('');
+      }
+
+      if (pending.length > 0) {
+        lines.push(`*Pediste (${pending.length} pendientes):*`);
+        for (const r of pending.slice(0, 5)) {
+          lines.push(`• A ${r.targetName || r.targetPhone}: ${formatCLP(r.amount)} — ${r.description}`);
+        }
+      }
+
+      if (pending.length === 0 && pendingReceived.length === 0) {
+        lines.push('No tienes solicitudes pendientes.');
+      }
+
+      await this.wa.sendButtonMessage(
+        from,
+        lines.join('\n'),
+        [
+          { id: 'cmd_pay', title: 'Enviar dinero' },
+          { id: 'cmd_charge', title: 'Cobrar' },
+          { id: 'cmd_balance', title: 'Mi billetera' },
+        ],
+      );
+    } catch {
+      await this.wa.sendTextMessage(from, 'No pude cargar tus solicitudes.');
     }
   }
 }
