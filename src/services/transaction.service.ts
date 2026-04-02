@@ -7,6 +7,7 @@ import { WalletService, InsufficientFundsError } from './wallet.service';
 import { FraudService } from './fraud.service';
 import { audit } from './audit.service';
 import { cache } from './cache.service';
+import { webhookDispatch } from './webhook-dispatch.service';
 
 const log = createLogger('transaction-service');
 
@@ -214,6 +215,18 @@ export class TransactionService {
         metadata: { receiverId, reference, fee, fraudScore: fraudResult.score, paymentMethod: req.paymentMethod },
       });
 
+      // Dispatch webhook to merchant (fire-and-forget)
+      webhookDispatch.dispatch(receiverId, 'payment.completed', {
+        transactionId: result.transactionId,
+        reference,
+        amount,
+        fee,
+        senderId,
+        receiverId,
+        paymentMethod: req.paymentMethod,
+        completedAt: new Date().toISOString(),
+      }).catch(() => {});
+
       return {
         success: true,
         reference,
@@ -232,6 +245,17 @@ export class TransactionService {
           errorMessage: (err as Error).message,
           metadata: { receiverId, reference },
         });
+
+        // Dispatch payment.failed webhook (fire-and-forget)
+        webhookDispatch.dispatch(receiverId, 'payment.failed', {
+          reference,
+          amount,
+          senderId,
+          receiverId,
+          reason: err.message,
+          failedAt: new Date().toISOString(),
+        }).catch(() => {});
+
         return { success: false, error: err.message };
       }
 
