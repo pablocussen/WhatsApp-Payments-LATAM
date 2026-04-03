@@ -112,6 +112,17 @@ jest.mock('../../src/services/audit.service', () => ({
   })),
 }));
 
+jest.mock('../../src/services/consent.service', () => ({
+  consent: {
+    grantRegistrationConsents: jest.fn().mockResolvedValue(undefined),
+    hasThirdPartyConsent: jest.fn().mockResolvedValue(true), // default: allow
+    recordThirdPartyContact: jest.fn().mockResolvedValue(undefined),
+    hasConsent: jest.fn().mockResolvedValue(true),
+    grant: jest.fn().mockResolvedValue({}),
+  },
+  ConsentService: jest.fn(),
+}));
+
 import { BotService } from '../../src/services/bot.service';
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -477,7 +488,8 @@ describe('BotService', () => {
       mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_PIN', sessionData));
       mockUsers.getUserByWaId
         .mockResolvedValueOnce(mkUser()) // initial user check
-        .mockResolvedValueOnce(mkUser()); // sender name lookup for receiver notification
+        .mockResolvedValueOnce(mkUser()) // sender name lookup for receiver notification
+        .mockResolvedValueOnce(mkUser({ id: RECEIVER_ID, waId: RECEIVER_WA })); // receiver lookup (opt-in check)
       mockUsers.verifyUserPin.mockResolvedValue({ success: true, message: '' });
       mockTransactions.processP2PPayment.mockResolvedValue({
         success: true,
@@ -494,7 +506,7 @@ describe('BotService', () => {
         expect.stringContaining('enviado'),
         expect.arrayContaining([expect.objectContaining({ id: 'cmd_pay' })]),
       );
-      // Receiver notification (with "Devolver pago" action)
+      // Receiver notification (with "Devolver pago" action — only sent because receiver is registered)
       expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
         RECEIVER_WA,
         expect.stringContaining('pago'),
@@ -833,10 +845,9 @@ describe('BotService', () => {
 
       await bot.handleMessage(FROM, '/soporte');
 
-      expect(mockWa.sendButtonMessage).toHaveBeenCalledWith(
+      expect(mockWa.sendTextMessage).toHaveBeenCalledWith(
         FROM,
         expect.stringContaining('soporte@whatpay.cl'),
-        expect.any(Array),
       );
     });
 
@@ -1061,7 +1072,8 @@ describe('BotService', () => {
       mockGetSession.mockResolvedValue(mkSession('PAY_ENTER_PIN', sessionData));
       mockUsers.getUserByWaId
         .mockResolvedValueOnce(mkUser()) // initial registered check
-        .mockResolvedValueOnce(null); // sender lookup → null → covers sender?.name || formatPhone(from)
+        .mockResolvedValueOnce(null) // sender lookup → null → covers sender?.name || formatPhone(from)
+        .mockResolvedValueOnce(mkUser({ id: RECEIVER_ID, waId: RECEIVER_WA })); // receiver lookup (opt-in)
       mockUsers.verifyUserPin.mockResolvedValue({ success: true, message: '' });
       mockTransactions.processP2PPayment.mockResolvedValue({
         success: true,

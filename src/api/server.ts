@@ -48,6 +48,7 @@ import qrPaymentRoutes from './qr-payment.routes';
 import splitPaymentRoutes from './split-payment.routes';
 import scheduledTransferRoutes from './scheduled-transfer.routes';
 import paymentRequestRoutes from './payment-request.routes';
+import legalRoutes from './legal.routes';
 import { SchedulerService } from '../services/scheduler.service';
 import { metricsMiddleware } from '../middleware/metrics.middleware';
 
@@ -181,6 +182,7 @@ app.use('/api/v1', qrPaymentRoutes);
 app.use('/api/v1', splitPaymentRoutes);
 app.use('/api/v1', scheduledTransferRoutes);
 app.use('/api/v1', paymentRequestRoutes);
+app.use('/api/v1', legalRoutes);
 
 // ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 

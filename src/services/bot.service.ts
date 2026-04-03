@@ -26,6 +26,7 @@ import { qrPayment } from './qr-payment.service';
 import { splitPayment } from './split-payment.service';
 import { scheduledTransfer } from './scheduled-transfer.service';
 import { paymentRequest } from './payment-request.service';
+import { consent } from './consent.service';
 
 const log = createLogger('bot-service');
 
@@ -177,6 +178,9 @@ export class BotService {
         '',
         'Envía y recibe plata sin salir del chat.',
         'Crear tu cuenta toma menos de 1 minuto.',
+        '',
+        'Al crear tu cuenta aceptas nuestros Términos de Servicio y Política de Privacidad:',
+        'whatpay.cl/legal',
       ].join('\n'),
       [{ id: 'start_register', title: 'Crear mi cuenta' }],
     );
@@ -261,6 +265,12 @@ export class BotService {
         }
 
         await deleteSession(from);
+
+        // Record legal consents (ToS + Privacy + Messaging)
+        if (result.userId) {
+          consent.grantRegistrationConsents({ userId: result.userId, waId: from }).catch(() => {});
+        }
+
         await this.wa.sendButtonMessage(
           from,
           [
@@ -415,13 +425,24 @@ export class BotService {
         return this.sendHelp(from, helpUser?.name ?? null, helpUser?.id);
       }
       case 'support':
-        return this.wa.sendButtonMessage(
+        return this.wa.sendTextMessage(
           from,
-          '*Soporte WhatPay*\n\nEscríbenos a soporte@whatpay.cl\nLun-Vie 9:00 - 18:00',
           [
-            { id: 'cmd_pay', title: 'Enviar dinero' },
-            { id: 'cmd_balance', title: 'Mi billetera' },
-          ],
+            '*Soporte WhatPay* 🛟',
+            '',
+            'Puedes contactarnos por:',
+            '',
+            '📧 *Email:* soporte@whatpay.cl',
+            '🌐 *Web:* whatpay.cl/soporte',
+            '📞 *Teléfono:* +56 2 2345 6789',
+            '',
+            '⏰ Lun-Vie 9:00 - 18:00 (hora Chile)',
+            '',
+            'Si necesitas hablar con una persona real, responde *"agente"* y te derivaremos.',
+            '',
+            '📋 Términos: whatpay.cl/legal',
+            '🔒 Privacidad: whatpay.cl/privacidad',
+          ].join('\n'),
         );
       case 'profile':
         return this.showProfile(from, userId);
@@ -740,23 +761,27 @@ export class BotService {
           ],
         );
 
-        // Notify receiver
+        // Notify receiver (only if they are a registered user — WhatsApp opt-in compliance)
         const sender = await this.users.getUserByWaId(from);
-        await this.wa.sendButtonMessage(
-          sd(session.data, 'receiverPhone'),
-          [
-            `Recibiste un pago 💸`,
-            receipt([
-              `*${formatCLP(sdn(session.data, 'amount'))}* de ${sender?.name || formatPhone(from)}`,
-              `Ref: ${payment.reference}`,
-              `Fecha: ${now}`,
-            ]),
-          ].join('\n'),
-          [
-            { id: 'cmd_balance', title: 'Mi billetera' },
-            { id: 'cmd_pay', title: 'Devolver pago' },
-          ],
-        );
+        const receiverPhone = sd(session.data, 'receiverPhone');
+        const receiverUser = await this.users.getUserByWaId(receiverPhone);
+        if (receiverUser) {
+          await this.wa.sendButtonMessage(
+            receiverPhone,
+            [
+              `Recibiste un pago 💸`,
+              receipt([
+                `*${formatCLP(sdn(session.data, 'amount'))}* de ${sender?.name || formatPhone(from)}`,
+                `Ref: ${payment.reference}`,
+                `Fecha: ${now}`,
+              ]),
+            ].join('\n'),
+            [
+              { id: 'cmd_balance', title: 'Mi billetera' },
+              { id: 'cmd_pay', title: 'Devolver pago' },
+            ],
+          );
+        }
 
         log.info('P2P payment completed via bot', {
           reference: payment.reference,
@@ -963,6 +988,21 @@ export class BotService {
     const chargeDesc = sd(session.data, 'linkDescription');
     const chargeUrl = sd(session.data, 'linkUrl');
 
+    // WhatsApp opt-in compliance: only send business messages to registered users
+    // or users who have previously interacted with us
+    const targetUser = await this.users.getUserByWaId(normalizedPhone);
+    const hasConsent = await consent.hasThirdPartyConsent(normalizedPhone);
+
+    if (!targetUser && !hasConsent) {
+      // Cannot send business-initiated message to unknown third party
+      await deleteSession(from);
+      await this.wa.sendTextMessage(
+        from,
+        `${formatPhone(normalizedPhone)} no tiene cuenta WhatPay. Comparte el enlace directamente:\n\n${chargeUrl}`,
+      );
+      return;
+    }
+
     await this.wa.sendButtonMessage(
       normalizedPhone,
       [
@@ -978,6 +1018,9 @@ export class BotService {
         { id: 'charge_decline', title: 'Rechazar' },
       ],
     );
+
+    // Record contact for future consent tracking
+    consent.recordThirdPartyContact(normalizedPhone).catch(() => {});
 
     await deleteSession(from);
     await this.wa.sendTextMessage(from, `Cobro enviado a ${formatPhone(normalizedPhone)}.`);
