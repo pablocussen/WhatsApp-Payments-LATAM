@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { requireAuth, AuthenticatedRequest } from '../middleware/jwt.middleware';
 import { asyncHandler } from '../utils/async-handler';
+import { rateLimitAction } from '../middleware/auth.middleware';
 import { env } from '../config/environment';
 import { kycDocument as kycSvc } from '../services/kyc-document.service';
 import { createLogger } from '../config/logger';
@@ -47,6 +48,7 @@ const completeVerificationSchema = z.object({
 router.post(
   '/kyc/documents',
   requireAuth,
+  rateLimitAction('kyc:upload'),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.userId;
     const parsed = uploadSchema.safeParse(req.body);

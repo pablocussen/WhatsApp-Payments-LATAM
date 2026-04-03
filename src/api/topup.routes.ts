@@ -11,6 +11,7 @@ import { generateReference } from '../utils/crypto';
 import { getRedis } from '../config/database';
 import { env } from '../config/environment';
 import { asyncHandler } from '../utils/async-handler';
+import { rateLimitAction } from '../middleware/auth.middleware';
 
 const router = Router();
 const transbank = new TransbankService();
@@ -30,6 +31,7 @@ const topupSchema = z.object({
 router.post(
   '/webpay',
   requireAuth,
+  rateLimitAction('topup:create'),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const parsed = topupSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -143,6 +145,7 @@ router.post('/webpay/callback', async (req: Request, res: Response) => {
 router.post(
   '/khipu',
   requireAuth,
+  rateLimitAction('topup:create'),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const parsed = topupSchema.safeParse(req.body);
     if (!parsed.success) {

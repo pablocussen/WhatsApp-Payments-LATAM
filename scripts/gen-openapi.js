@@ -1468,5 +1468,28 @@ p['/c/{code}'] = {
   },
 };
 
+// ══════════════════════════════════════════════════
+// LEGAL & COMPLIANCE
+// ══════════════════════════════════════════════════
+p['/api/v1/legal'] = {
+  get: {
+    tags: ['system'], summary: 'Términos, privacidad y compliance', security: none,
+    description: 'Devuelve ToS, Privacy Policy, Commerce Disclaimer, derechos Ley 19.628, y cumplimiento WhatsApp Business.',
+    responses: ok('Legal info', {
+      termsOfService: { version: '1.0', url: 'https://whatpay.cl/legal' },
+      privacyPolicy: { version: '1.0', url: 'https://whatpay.cl/privacidad' },
+      commerceDisclaimer: { description: 'WhatPay es una plataforma de pagos, no de préstamos.' },
+      dataProtection: { law: 'Ley 19.628', contact: 'privacidad@whatpay.cl' },
+      whatsappCompliance: { optIn: true, optOut: '/silenciar', escalation: '/soporte' },
+    }),
+  },
+};
+p['/api/v1/legal/consents'] = {
+  get: {
+    tags: ['system'], summary: 'Info de consentimientos requeridos', security: none,
+    responses: ok('Consents', { requiredConsents: ['tos', 'privacy', 'messaging'], optionalConsents: ['marketing'] }),
+  },
+};
+
 // ── Output ──────────────────────────────────────
 console.log(JSON.stringify(spec, null, 2));

@@ -8776,6 +8776,75 @@
           }
         }
       }
+    },
+    "/api/v1/legal": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Términos, privacidad y compliance",
+        "security": [],
+        "description": "Devuelve ToS, Privacy Policy, Commerce Disclaimer, derechos Ley 19.628, y cumplimiento WhatsApp Business.",
+        "responses": {
+          "200": {
+            "description": "Legal info",
+            "content": {
+              "application/json": {
+                "example": {
+                  "termsOfService": {
+                    "version": "1.0",
+                    "url": "https://whatpay.cl/legal"
+                  },
+                  "privacyPolicy": {
+                    "version": "1.0",
+                    "url": "https://whatpay.cl/privacidad"
+                  },
+                  "commerceDisclaimer": {
+                    "description": "WhatPay es una plataforma de pagos, no de préstamos."
+                  },
+                  "dataProtection": {
+                    "law": "Ley 19.628",
+                    "contact": "privacidad@whatpay.cl"
+                  },
+                  "whatsappCompliance": {
+                    "optIn": true,
+                    "optOut": "/silenciar",
+                    "escalation": "/soporte"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/legal/consents": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Info de consentimientos requeridos",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Consents",
+            "content": {
+              "application/json": {
+                "example": {
+                  "requiredConsents": [
+                    "tos",
+                    "privacy",
+                    "messaging"
+                  ],
+                  "optionalConsents": [
+                    "marketing"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

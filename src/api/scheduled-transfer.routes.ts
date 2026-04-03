@@ -3,6 +3,7 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, AuthenticatedRequest } from '../middleware/jwt.middleware';
 import { asyncHandler } from '../utils/async-handler';
+import { rateLimitAction } from '../middleware/auth.middleware';
 import { scheduledTransfer } from '../services/scheduled-transfer.service';
 
 const router = Router();
@@ -22,6 +23,7 @@ const createSchema = z.object({
 router.post(
   '/scheduled-transfers',
   requireAuth,
+  rateLimitAction('transfer:create'),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) {

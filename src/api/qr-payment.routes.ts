@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { requireAuth, AuthenticatedRequest } from '../middleware/jwt.middleware';
 import { asyncHandler } from '../utils/async-handler';
+import { rateLimitAction } from '../middleware/auth.middleware';
 import { env } from '../config/environment';
 import { qrPayment } from '../services/qr-payment.service';
 
@@ -21,6 +22,7 @@ const generateSchema = z.object({
 router.post(
   '/qr/generate',
   requireAuth,
+  rateLimitAction('qr:generate'),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const parsed = generateSchema.safeParse(req.body);
     if (!parsed.success) {

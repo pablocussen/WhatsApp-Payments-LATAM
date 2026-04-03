@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getRedis } from '../config/database';
 import { createLogger } from '../config/logger';
 import { asyncHandler } from '../utils/async-handler';
+import { rateLimitAction } from '../middleware/auth.middleware';
 
 const router = Router();
 const log = createLogger('waitlist');
@@ -17,6 +18,7 @@ const emailSchema = z.object({
 
 router.post(
   '/waitlist',
+  rateLimitAction('waitlist:join'),
   asyncHandler(async (req: Request, res: Response) => {
     // Per-IP rate limit: 5 signups/hour
     const ip = req.ip || 'unknown';

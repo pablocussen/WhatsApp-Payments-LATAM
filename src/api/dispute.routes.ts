@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { requireAuth, AuthenticatedRequest } from '../middleware/jwt.middleware';
 import { asyncHandler } from '../utils/async-handler';
+import { rateLimitAction } from '../middleware/auth.middleware';
 import { env } from '../config/environment';
 import { disputes as disputeSvc } from '../services/dispute.service';
 import { createLogger } from '../config/logger';
@@ -37,6 +38,7 @@ const updateStatusSchema = z.object({
 router.post(
   '/disputes',
   requireAuth,
+  rateLimitAction('dispute:create'),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.userId;
     const parsed = openDisputeSchema.safeParse(req.body);

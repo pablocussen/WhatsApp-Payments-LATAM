@@ -52,6 +52,7 @@ jest.mock('../../src/services/transaction.service', () => ({
 // Bypass Redis-backed rate limiting in all route tests
 jest.mock('../../src/middleware/auth.middleware', () => ({
   rateLimit: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+  rateLimitAction: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   isSecurePin: jest.fn().mockReturnValue(true),
 }));
 

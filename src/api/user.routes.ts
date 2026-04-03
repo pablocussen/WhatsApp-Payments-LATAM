@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, AuthenticatedRequest, generateToken } from '../middleware/jwt.middleware';
-import { rateLimit } from '../middleware/auth.middleware';
+import { rateLimit, rateLimitAction } from '../middleware/auth.middleware';
 import { UserService } from '../services/user.service';
 import { WalletService } from '../services/wallet.service';
 import { TransactionService } from '../services/transaction.service';
@@ -33,7 +33,7 @@ const registerSchema = z.object({
 // Login (PIN verification → JWT)
 router.post(
   '/login',
-  rateLimit(5, 60_000), // 5 attempts/min per IP (brute-force protection)
+  rateLimitAction('auth:login'),
   asyncHandler(async (req, res) => {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -73,7 +73,7 @@ router.post(
 // Register new user
 router.post(
   '/register',
-  rateLimit(3, 3_600_000), // 3 registrations/hour per IP
+  rateLimitAction('auth:register'),
   asyncHandler(async (req, res) => {
     const parsed = registerSchema.safeParse(req.body);
     if (!parsed.success) {

@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, AuthenticatedRequest } from '../middleware/jwt.middleware';
+import { rateLimitAction } from '../middleware/auth.middleware';
 import { PaymentLinkService } from '../services/payment-link.service';
 import { TransactionService } from '../services/transaction.service';
 import { WalletService } from '../services/wallet.service';
@@ -92,6 +93,7 @@ router.delete(
 router.post(
   '/pay',
   requireAuth,
+  rateLimitAction('payment:create'),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const parsed = processPaymentSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -122,6 +124,7 @@ router.post(
 router.post(
   '/refund',
   requireAuth,
+  rateLimitAction('payment:refund'),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const schema = z.object({ reference: z.string().min(1) });
     const parsed = schema.safeParse(req.body);
