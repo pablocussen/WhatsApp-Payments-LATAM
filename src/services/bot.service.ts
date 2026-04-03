@@ -27,6 +27,8 @@ import { splitPayment } from './split-payment.service';
 import { scheduledTransfer } from './scheduled-transfer.service';
 import { paymentRequest } from './payment-request.service';
 import { consent } from './consent.service';
+import { UserPrefsService } from './user-prefs.service';
+import { t, greetingI18n, type Locale } from '../utils/i18n';
 
 const log = createLogger('bot-service');
 
@@ -113,6 +115,16 @@ export class BotService {
   private paymentLinks = new PaymentLinkService();
   private khipu = new KhipuService();
   private audit = new AuditService();
+  private prefs = new UserPrefsService();
+
+  /** Get user's preferred locale. Defaults to 'es'. */
+  private async getLocale(userId?: string): Promise<Locale> {
+    if (!userId) return 'es';
+    try {
+      const p = await this.prefs.getPrefs(userId);
+      return p.language ?? 'es';
+    } catch { return 'es'; }
+  }
 
   async handleMessage(from: string, text: string, buttonId?: string): Promise<void> {
     try {
@@ -424,26 +436,28 @@ export class BotService {
         const helpUser = await this.users.getUserByWaId(from);
         return this.sendHelp(from, helpUser?.name ?? null, helpUser?.id);
       }
-      case 'support':
+      case 'support': {
+        const sl = await this.getLocale(userId);
         return this.wa.sendTextMessage(
           from,
           [
-            '*Soporte WhatPay* 🛟',
+            t('support.title', sl),
             '',
-            'Puedes contactarnos por:',
+            t('support.contactUs', sl),
             '',
             '📧 *Email:* soporte@whatpay.cl',
             '🌐 *Web:* whatpay.cl/soporte',
-            '📞 *Teléfono:* +56 2 2345 6789',
+            '📞 *Tel:* +56 2 2345 6789',
             '',
-            '⏰ Lun-Vie 9:00 - 18:00 (hora Chile)',
+            t('support.hours', sl),
             '',
-            'Si necesitas hablar con una persona real, responde *"agente"* y te derivaremos.',
+            t('support.humanAgent', sl),
             '',
-            '📋 Términos: whatpay.cl/legal',
-            '🔒 Privacidad: whatpay.cl/privacidad',
+            '📋 Terms: whatpay.cl/legal',
+            '🔒 Privacy: whatpay.cl/privacidad',
           ].join('\n'),
         );
+      }
       case 'profile':
         return this.showProfile(from, userId);
       case 'changepin':
@@ -1031,14 +1045,15 @@ export class BotService {
   // ═══════════════════════════════════════════════════════
 
   private async showBalance(from: string, userId: string): Promise<void> {
+    const locale = await this.getLocale(userId);
     const balance = await this.wallets.getBalance(userId);
     await this.wa.sendButtonMessage(
       from,
-      `💰 *Mi billetera*\n\nSaldo: *${balance.formatted}*`,
+      `${t('balance.title', locale)}\n\n${t('balance.label', locale)}: *${balance.formatted}*`,
       [
-        { id: 'cmd_pay', title: 'Enviar dinero' },
-        { id: 'cmd_topup', title: 'Recargar' },
-        { id: 'cmd_history', title: 'Movimientos' },
+        { id: 'cmd_pay', title: t('menu.sendMoney', locale) },
+        { id: 'cmd_topup', title: t('balance.topup', locale) },
+        { id: 'cmd_history', title: t('balance.history', locale) },
       ],
     );
   }
@@ -1783,24 +1798,25 @@ export class BotService {
   }
 
   private async sendHelp(from: string, name: string | null, userId?: string): Promise<void> {
-    const greet = greeting(name);
+    const locale = await this.getLocale(userId);
+    const greet = greetingI18n(name, locale);
 
     // Context-aware: show balance summary for returning users
     let context = '';
     if (userId) {
       try {
         const balance = await this.wallets.getBalance(userId);
-        context = `\nSaldo: *${balance.formatted}*`;
+        context = `\n${t('balance.label', locale)}: *${balance.formatted}*`;
       } catch { /* fail-open */ }
     }
 
     await this.wa.sendButtonMessage(
       from,
-      `${greet} 👋\n¿Qué necesitas?${context}`,
+      `${greet} 👋\n${t('menu.whatDoYouNeed', locale)}${context}`,
       [
-        { id: 'cmd_pay', title: 'Enviar dinero' },
-        { id: 'cmd_charge', title: 'Cobrar' },
-        { id: 'cmd_balance', title: 'Mi billetera' },
+        { id: 'cmd_pay', title: t('menu.sendMoney', locale) },
+        { id: 'cmd_charge', title: t('menu.charge', locale) },
+        { id: 'cmd_balance', title: t('menu.myWallet', locale) },
       ],
     );
   }
