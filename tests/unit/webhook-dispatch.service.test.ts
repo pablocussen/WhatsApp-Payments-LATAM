@@ -3,9 +3,14 @@
  */
 
 const mockGetWebhooksForEvent = jest.fn();
+const mockGetWebhook = jest.fn();
 const mockSignPayload = jest.fn().mockReturnValue('test-signature');
 const mockRecordDelivery = jest.fn().mockResolvedValue({});
 const mockFetch = jest.fn();
+const mockZAdd = jest.fn().mockResolvedValue(1);
+const mockZRangeByScore = jest.fn().mockResolvedValue([]);
+const mockZRemRangeByScore = jest.fn().mockResolvedValue(0);
+const mockZCard = jest.fn().mockResolvedValue(0);
 
 jest.mock('../../src/config/database', () => ({
   getRedis: jest.fn().mockReturnValue({
@@ -16,6 +21,10 @@ jest.mock('../../src/config/database', () => ({
     sAdd: jest.fn(), sRem: jest.fn(),
     lPush: jest.fn(), lRange: jest.fn().mockResolvedValue([]), lTrim: jest.fn(),
     expire: jest.fn().mockResolvedValue(true),
+    zAdd: (...args: unknown[]) => mockZAdd(...args),
+    zRangeByScore: (...args: unknown[]) => mockZRangeByScore(...args),
+    zRemRangeByScore: (...args: unknown[]) => mockZRemRangeByScore(...args),
+    zCard: (...args: unknown[]) => mockZCard(...args),
     multi: jest.fn().mockReturnValue({
       incr: jest.fn().mockReturnThis(), set: jest.fn().mockReturnThis(),
       expire: jest.fn().mockReturnThis(), lPush: jest.fn().mockReturnThis(),
@@ -37,6 +46,7 @@ jest.mock('../../src/config/environment', () => ({
 jest.mock('../../src/services/merchant-webhook.service', () => ({
   MerchantWebhookService: jest.fn().mockImplementation(() => ({
     getWebhooksForEvent: mockGetWebhooksForEvent,
+    getWebhook: mockGetWebhook,
     signPayload: mockSignPayload,
     recordDelivery: mockRecordDelivery,
   })),
@@ -275,5 +285,117 @@ describe('WebhookDispatchService', () => {
     expect(deliveryIds[0]).not.toBe(deliveryIds[1]);
     expect(deliveryIds[0]).toMatch(/^del_/);
     expect(deliveryIds[1]).toMatch(/^del_/);
+  });
+
+  // ── Retry queue ────────────────────────────────────
+
+  it('queues failed delivery for retry', async () => {
+    mockGetWebhooksForEvent.mockResolvedValue([sampleWebhook]);
+    mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    await service.dispatch('merchant-1', 'payment.completed', { amount: 1000 });
+
+    expect(mockZAdd).toHaveBeenCalledWith(
+      'webhook:retry:queue',
+      expect.objectContaining({
+        score: expect.any(Number),
+        value: expect.stringContaining('"attempt":2'),
+      }),
+    );
+  });
+
+  it('does not queue retry after max attempts', async () => {
+    mockGetWebhooksForEvent.mockResolvedValue([sampleWebhook]);
+    mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    // Simulate attempt 5 (max) via processRetries
+    const entry = JSON.stringify({
+      webhookId: 'wh_test123',
+      merchantId: 'merchant-1',
+      event: 'payment.completed',
+      payloadStr: '{"event":"payment.completed","timestamp":"2026-01-01","data":{}}',
+      attempt: 5,
+      nextRetryAt: Date.now() - 1000,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    mockZRangeByScore.mockResolvedValue([entry]);
+    mockGetWebhook.mockResolvedValue(sampleWebhook);
+
+    await service.processRetries();
+
+    // Should have attempted delivery but NOT queued another retry
+    // The zAdd from attempt 5 should NOT be called with attempt 6
+    const zAddCalls = mockZAdd.mock.calls.filter(
+      (c: unknown[]) => {
+        const val = (c[1] as { value: string }).value;
+        return val.includes('"attempt":6');
+      }
+    );
+    expect(zAddCalls).toHaveLength(0);
+  });
+
+  it('includes X-WhatPay-Attempt header', async () => {
+    mockGetWebhooksForEvent.mockResolvedValue([sampleWebhook]);
+
+    await service.dispatch('merchant-1', 'payment.completed', { amount: 1000 });
+
+    const headers = mockFetch.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers['X-WhatPay-Attempt']).toBe('1');
+  });
+
+  // ── processRetries ─────────────────────────────────
+
+  it('processRetries picks up due entries and re-delivers', async () => {
+    const entry = JSON.stringify({
+      webhookId: 'wh_test123',
+      merchantId: 'merchant-1',
+      event: 'payment.completed',
+      payloadStr: '{"event":"payment.completed","timestamp":"2026-01-01","data":{"amount":5000}}',
+      attempt: 2,
+      nextRetryAt: Date.now() - 1000,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    mockZRangeByScore.mockResolvedValue([entry]);
+    mockGetWebhook.mockResolvedValue(sampleWebhook);
+    mockFetch.mockResolvedValue({ status: 200, text: () => Promise.resolve('OK') });
+
+    const count = await service.processRetries();
+
+    expect(count).toBe(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockZRemRangeByScore).toHaveBeenCalled();
+  });
+
+  it('processRetries skips disabled webhooks', async () => {
+    const entry = JSON.stringify({
+      webhookId: 'wh_disabled',
+      merchantId: 'merchant-1',
+      event: 'payment.completed',
+      payloadStr: '{}',
+      attempt: 2,
+      nextRetryAt: Date.now() - 1000,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    mockZRangeByScore.mockResolvedValue([entry]);
+    mockGetWebhook.mockResolvedValue({ ...sampleWebhook, status: 'disabled' });
+
+    const count = await service.processRetries();
+
+    expect(count).toBe(0);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('processRetries returns 0 when queue is empty', async () => {
+    mockZRangeByScore.mockResolvedValue([]);
+    const count = await service.processRetries();
+    expect(count).toBe(0);
+  });
+
+  // ── getPendingRetryCount ───────────────────────────
+
+  it('returns pending retry count', async () => {
+    mockZCard.mockResolvedValue(7);
+    const count = await service.getPendingRetryCount();
+    expect(count).toBe(7);
   });
 });
