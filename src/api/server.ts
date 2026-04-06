@@ -56,6 +56,7 @@ import notificationRoutes from './notification.routes';
 import { SchedulerService } from '../services/scheduler.service';
 import { metricsMiddleware } from '../middleware/metrics.middleware';
 import { apiVersionHeaders, checkApiVersion } from '../middleware/api-version.middleware';
+import { securityHeaders } from '../middleware/security-headers.middleware';
 
 const log = createLogger('server');
 const scheduler = new SchedulerService();
@@ -104,6 +105,7 @@ app.use(rateLimit(100, 60_000));
 app.use(metricsMiddleware);
 app.use(apiVersionHeaders);
 app.use(checkApiVersion);
+app.use(securityHeaders);
 
 // ─── Request Logging ────────────────────────────────────
 
