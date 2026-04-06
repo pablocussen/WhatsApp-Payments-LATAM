@@ -166,4 +166,67 @@ router.get(
   }),
 );
 
+// ─── Webhook Test ──────────────────────────────────────
+// Send a test webhook event to verify merchant's endpoint
+
+router.post(
+  '/merchant-api/webhooks/test',
+  requireApiKey('webhooks:manage'),
+  asyncHandler(async (req: MerchantApiRequest, res: Response) => {
+    const { url, event } = req.body;
+
+    if (!url || !event) {
+      return res.status(400).json({ error: 'url y event son requeridos.' });
+    }
+
+    const testPayload = {
+      event: event || 'payment.completed',
+      timestamp: new Date().toISOString(),
+      test: true,
+      data: {
+        transactionId: 'test_' + Date.now().toString(36),
+        reference: '#WP-TEST-WEBHOOK',
+        amount: 1000,
+        merchantId: req.merchantId,
+        message: 'Este es un evento de prueba. No representa una transaccion real.',
+      },
+    };
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-WhatPay-Event': event,
+          'X-WhatPay-Test': 'true',
+          'User-Agent': 'WhatPay-Webhook/1.0',
+        },
+        body: JSON.stringify(testPayload),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      return res.json({
+        success: response.status >= 200 && response.status < 300,
+        statusCode: response.status,
+        url,
+        event,
+        payload: testPayload,
+      });
+    } catch (err) {
+      return res.json({
+        success: false,
+        error: (err as Error).message,
+        url,
+        event,
+        payload: testPayload,
+      });
+    }
+  }),
+);
+
 export default router;
