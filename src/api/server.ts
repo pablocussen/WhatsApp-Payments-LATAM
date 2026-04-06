@@ -77,7 +77,27 @@ app.use(
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   }),
 );
-app.use(cors({ origin: [env.APP_BASE_URL, 'https://cussen.cl', 'https://cussen-46735.web.app'] }));
+app.use(cors({
+  origin: [
+    env.APP_BASE_URL,
+    'https://cussen.cl',
+    'https://cussen-46735.web.app',
+    'https://whatpay.cl',
+    'https://www.whatpay.cl',
+  ],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type', 'Authorization', 'X-Api-Key', 'X-Admin-Key',
+    'X-API-Version', 'Idempotency-Key', 'X-Request-ID',
+  ],
+  exposedHeaders: [
+    'X-API-Version', 'X-RateLimit-Limit', 'X-RateLimit-Remaining',
+    'X-RateLimit-Action', 'Retry-After', 'X-Idempotency-Replayed',
+    'X-Request-ID',
+  ],
+  credentials: true,
+  maxAge: 86400, // preflight cache 24h
+}));
 app.use(express.json({ limit: '1mb' }));
 app.use(rateLimit(100, 60_000));
 app.use(metricsMiddleware);
