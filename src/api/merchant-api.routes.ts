@@ -10,6 +10,7 @@ import { PaymentLinkService } from '../services/payment-link.service';
 import { asyncHandler } from '../utils/async-handler';
 import { rateLimitAction } from '../middleware/auth.middleware';
 import { idempotency } from '../middleware/idempotency.middleware';
+import { merchantStats } from '../services/merchant-stats.service';
 
 const router = Router();
 const transactions = new TransactionService();
@@ -118,6 +119,17 @@ router.post(
     }
 
     res.status(201).json(result);
+  }),
+);
+
+// ─── Dashboard Stats ───────────────────────────────────
+
+router.get(
+  '/merchant-api/stats',
+  requireApiKey('transactions:read'),
+  asyncHandler(async (req: MerchantApiRequest, res: Response) => {
+    const stats = await merchantStats.getDashboardStats(req.merchantId!);
+    res.json({ merchantId: req.merchantId, stats });
   }),
 );
 
