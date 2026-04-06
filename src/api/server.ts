@@ -125,6 +125,20 @@ app.get('/', (_req, res) => {
     status: 'ok',
     docs: '/api/docs',
     health: '/health',
+    legal: '/api/v1/legal',
+    capabilities: [
+      'p2p-payments', 'payment-links', 'qr-codes', 'split-payments',
+      'scheduled-transfers', 'payment-requests', 'batch-payments',
+      'merchant-api', 'webhooks', 'receipts', 'kyc', 'loyalty',
+      'promotions', 'disputes', 'i18n', 'idempotency', 'csv-export',
+    ],
+    auth: {
+      jwt: 'POST /api/v1/users/login',
+      apiKey: 'X-Api-Key header (merchants)',
+      admin: 'x-admin-key header',
+    },
+    region: 'southamerica-west1 (Santiago, Chile)',
+    currency: 'CLP',
   });
 });
 
