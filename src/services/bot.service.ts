@@ -399,6 +399,10 @@ export class BotService {
     // ── Payment Request ─────────────────────────────────
     if (/^(\/solicitar|solicitar|pedir\s*plata|solicitar\s*pago|me\s*debes|ped[ií]r\s*dinero)/i.test(n)) return 'request';
 
+    // ── Account Deletion ─────────────────────────────────
+    if (/^(\/eliminar|eliminar\s*cuenta|borrar\s*cuenta|delete\s*account|eliminar\s*mis?\s*datos)/i.test(n))
+      return 'delete';
+
     // ── Gratitude → show menu ────────────────────────────
     if (/^(gracias|thanks|vale|listo|genial|ok|dale|perfect[oa]?|buena|bac[aá]n|sipo|ya)$/i.test(n))
       return 'help';
@@ -500,6 +504,8 @@ export class BotService {
         return this.showScheduled(from, userId);
       case 'request':
         return this.showRequest(from, userId);
+      case 'delete':
+        return this.handleDeleteAccount(from, userId);
     }
   }
 
@@ -2047,5 +2053,66 @@ export class BotService {
     } catch {
       await this.wa.sendTextMessage(from, 'No pude cargar tus solicitudes.');
     }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  ACCOUNT DELETION
+  // ═══════════════════════════════════════════════════════
+
+  private async handleDeleteAccount(from: string, userId: string): Promise<void> {
+    const locale = await this.getLocale(userId);
+    const { accountDeletion } = await import('./account-deletion.service');
+
+    // Check for existing request
+    const existing = await accountDeletion.getPendingRequest(userId);
+
+    if (existing) {
+      await this.wa.sendButtonMessage(
+        from,
+        [
+          locale === 'en'
+            ? '*Account deletion already requested*'
+            : '*Ya solicitaste eliminar tu cuenta*',
+          '',
+          locale === 'en'
+            ? `Scheduled for: ${new Date(existing.scheduledAt).toLocaleDateString('es-CL')}`
+            : `Programada para: ${new Date(existing.scheduledAt).toLocaleDateString('es-CL')}`,
+          '',
+          locale === 'en'
+            ? 'You can cancel before that date.'
+            : 'Puedes cancelar antes de esa fecha.',
+        ].join('\n'),
+        [
+          { id: 'cancel_deletion', title: locale === 'en' ? 'Cancel deletion' : 'Cancelar' },
+          { id: 'cmd_balance', title: t('menu.myWallet', locale) },
+        ],
+      );
+      return;
+    }
+
+    await this.wa.sendButtonMessage(
+      from,
+      [
+        locale === 'en'
+          ? '*Delete your account?*'
+          : '*Eliminar tu cuenta?*',
+        '',
+        locale === 'en'
+          ? 'This will permanently delete your account and all data after a 7-day grace period.'
+          : 'Esto eliminará permanentemente tu cuenta y datos después de 7 días de gracia.',
+        '',
+        locale === 'en'
+          ? 'Your balance must be $0 before deletion.'
+          : 'Tu saldo debe ser $0 antes de la eliminación.',
+        '',
+        locale === 'en'
+          ? 'You can cancel within 7 days.'
+          : 'Puedes cancelar dentro de 7 días.',
+      ].join('\n'),
+      [
+        { id: 'confirm_delete', title: locale === 'en' ? 'Yes, delete' : 'Sí, eliminar' },
+        { id: 'cmd_balance', title: t('menu.myWallet', locale) },
+      ],
+    );
   }
 }
