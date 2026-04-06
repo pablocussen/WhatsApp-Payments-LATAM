@@ -142,9 +142,9 @@ export class AccountDeletionService {
           rutHash: '[deleted]',
           pinHash: '[deleted]',
           biometricEnabled: false,
-          failedAttempts: 0,
+          pinAttempts: 0,
           lockedUntil: null,
-          updatedAt: new Date(),
+          isActive: false,
         },
       });
       deleted.push('user.pii');
