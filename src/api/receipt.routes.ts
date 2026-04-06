@@ -3,6 +3,7 @@ import type { Response } from 'express';
 import { requireAuth, AuthenticatedRequest } from '../middleware/jwt.middleware';
 import { asyncHandler } from '../utils/async-handler';
 import { receipts } from '../services/receipt.service';
+import { renderReceiptHtml } from '../services/receipt-html.service';
 
 const router = Router();
 
@@ -45,6 +46,24 @@ router.get(
       return res.status(404).json({ error: 'Recibo no encontrado.' });
     }
     return res.json({ receipt });
+  }),
+);
+
+// ─── GET /receipts/:id/html ────────────────────────────
+// Printable HTML receipt — open in browser, print to PDF
+
+router.get(
+  '/receipts/:id/html',
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const receipt = await receipts.getReceipt(req.params.id);
+    if (!receipt) {
+      return res.status(404).json({ error: 'Recibo no encontrado.' });
+    }
+
+    const html = renderReceiptHtml(receipt);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
   }),
 );
 
