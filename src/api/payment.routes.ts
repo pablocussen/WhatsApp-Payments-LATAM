@@ -4,6 +4,7 @@ import { requireAuth, AuthenticatedRequest } from '../middleware/jwt.middleware'
 import { rateLimitAction } from '../middleware/auth.middleware';
 import { idempotency } from '../middleware/idempotency.middleware';
 import { PaymentLinkService } from '../services/payment-link.service';
+import { generateQrSvgUrl, generateQrHtml } from '../utils/qr-generator';
 import { TransactionService } from '../services/transaction.service';
 import { WalletService } from '../services/wallet.service';
 import { asyncHandler } from '../utils/async-handler';
@@ -170,6 +171,37 @@ router.get(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const balance = await wallets.getBalance(req.user!.userId);
     return res.json(balance);
+  }),
+);
+
+// ─── QR code for payment link ──────────────────────────
+
+router.get(
+  '/links/:code/qr',
+  asyncHandler(async (req, res) => {
+    const link = await paymentLinks.resolveLink(req.params.code);
+    if (!link) {
+      return res.status(404).json({ error: 'Link no encontrado.' });
+    }
+
+    const format = req.query.format as string | undefined;
+    const payUrl = link.url ?? `${req.protocol}://${req.get('host')}/c/${req.params.code}`;
+
+    if (format === 'html') {
+      const html = generateQrHtml(payUrl, link.amountFormatted ?? undefined);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(html);
+    }
+
+    // Default: JSON with QR image URL
+    return res.json({
+      code: req.params.code,
+      payUrl,
+      qrImageUrl: generateQrSvgUrl(payUrl),
+      amount: link.amount ?? null,
+      amountFormatted: link.amountFormatted ?? null,
+      description: link.description ?? null,
+    });
   }),
 );
 
