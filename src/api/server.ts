@@ -51,6 +51,7 @@ import paymentRequestRoutes from './payment-request.routes';
 import legalRoutes from './legal.routes';
 import merchantApiRoutes from './merchant-api.routes';
 import batchPaymentRoutes from './batch-payment.routes';
+import transactionSearchRoutes from './transaction-search.routes';
 import { SchedulerService } from '../services/scheduler.service';
 import { metricsMiddleware } from '../middleware/metrics.middleware';
 
@@ -187,6 +188,7 @@ app.use('/api/v1', paymentRequestRoutes);
 app.use('/api/v1', legalRoutes);
 app.use('/api/v1', merchantApiRoutes);
 app.use('/api/v1', batchPaymentRoutes);
+app.use('/api/v1', transactionSearchRoutes);
 
 // ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 
