@@ -54,6 +54,7 @@ import batchPaymentRoutes from './batch-payment.routes';
 import transactionSearchRoutes from './transaction-search.routes';
 import { SchedulerService } from '../services/scheduler.service';
 import { metricsMiddleware } from '../middleware/metrics.middleware';
+import { apiVersionHeaders, checkApiVersion } from '../middleware/api-version.middleware';
 
 const log = createLogger('server');
 const scheduler = new SchedulerService();
@@ -80,6 +81,8 @@ app.use(cors({ origin: [env.APP_BASE_URL, 'https://cussen.cl', 'https://cussen-4
 app.use(express.json({ limit: '1mb' }));
 app.use(rateLimit(100, 60_000));
 app.use(metricsMiddleware);
+app.use(apiVersionHeaders);
+app.use(checkApiVersion);
 
 // ─── Request Logging ────────────────────────────────────
 
