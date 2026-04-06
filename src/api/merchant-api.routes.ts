@@ -9,6 +9,7 @@ import { TransactionService } from '../services/transaction.service';
 import { PaymentLinkService } from '../services/payment-link.service';
 import { asyncHandler } from '../utils/async-handler';
 import { rateLimitAction } from '../middleware/auth.middleware';
+import { idempotency } from '../middleware/idempotency.middleware';
 
 const router = Router();
 const transactions = new TransactionService();
@@ -91,6 +92,7 @@ router.post(
   '/merchant-api/charge',
   requireApiKey('payments:write'),
   rateLimitAction('payment:create'),
+  idempotency(),
   asyncHandler(async (req: MerchantApiRequest, res: Response) => {
     const { payerId, amount, description, paymentLinkId } = req.body;
 
