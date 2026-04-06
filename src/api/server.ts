@@ -52,6 +52,7 @@ import legalRoutes from './legal.routes';
 import merchantApiRoutes from './merchant-api.routes';
 import batchPaymentRoutes from './batch-payment.routes';
 import transactionSearchRoutes from './transaction-search.routes';
+import notificationRoutes from './notification.routes';
 import { SchedulerService } from '../services/scheduler.service';
 import { metricsMiddleware } from '../middleware/metrics.middleware';
 import { apiVersionHeaders, checkApiVersion } from '../middleware/api-version.middleware';
@@ -212,6 +213,7 @@ app.use('/api/v1', legalRoutes);
 app.use('/api/v1', merchantApiRoutes);
 app.use('/api/v1', batchPaymentRoutes);
 app.use('/api/v1', transactionSearchRoutes);
+app.use('/api/v1', notificationRoutes);
 
 // ─── API Docs (Swagger UI via CDN — disabled in production) ─────────────────
 
