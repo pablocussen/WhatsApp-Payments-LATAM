@@ -17,7 +17,10 @@ export type EventType =
   | 'KYC_UPGRADED'
   | 'PIN_FAILED'
   | 'USER_BANNED'
-  | 'USER_UNBANNED';
+  | 'USER_UNBANNED'
+  | 'ACCOUNT_DELETION_REQUESTED'
+  | 'ACCOUNT_DELETION_CANCELLED'
+  | 'ACCOUNT_DELETION_COMPLETED';
 
 export type ActorType = 'USER' | 'SYSTEM' | 'ADMIN';
 
