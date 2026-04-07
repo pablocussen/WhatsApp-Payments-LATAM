@@ -326,4 +326,53 @@ describe('E2E: Complete user journey', () => {
     });
     expect(addRes.status).toBe(201);
   });
+
+  // ── 16. Legal endpoints accessible ─────────────────────
+  it('16. Legal info is publicly accessible', async () => {
+    const res = await client.get('/api/v1/legal');
+    expect(res.status).toBe(200);
+    const body = res.body as { termsOfService: { version: string }; privacyPolicy: { version: string }; commerceDisclaimer: object };
+    expect(body.termsOfService.version).toBe('1.0');
+    expect(body.privacyPolicy.version).toBe('1.0');
+    expect(body.commerceDisclaimer).toBeDefined();
+  });
+
+  // ── 17. Transaction search ─────────────────────────────
+  it('17. User can search transactions', async () => {
+    const token = makeToken('user-e2e');
+    const res = await client.get('/api/v1/transactions/search?status=COMPLETED', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { transactions: unknown[]; total: number; page: number };
+    expect(body.page).toBe(1);
+    expect(Array.isArray(body.transactions)).toBe(true);
+  });
+
+  // ── 18. Notifications endpoint ─────────────────────────
+  it('18. User can check notifications', async () => {
+    const token = makeToken('user-e2e');
+    const res = await client.get('/api/v1/notifications/unread', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { unread: number };
+    expect(typeof body.unread).toBe('number');
+  });
+
+  // ── 19. Root endpoint has capabilities ─────────────────
+  it('19. Root endpoint shows capabilities', async () => {
+    const res = await client.get('/');
+    expect(res.status).toBe(200);
+    const body = res.body as { capabilities: string[]; auth: object };
+    expect(body.capabilities).toContain('p2p-payments');
+    expect(body.capabilities).toContain('qr-codes');
+    expect(body.auth).toBeDefined();
+  });
+
+  // ── 20. Batch payments endpoint exists ─────────────────
+  it('20. Batch payments requires auth', async () => {
+    const res = await client.post('/api/v1/batch-payments', { body: {} });
+    expect(res.status).toBe(401);
+  });
 });
