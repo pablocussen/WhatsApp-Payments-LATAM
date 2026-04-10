@@ -12,6 +12,7 @@ import { rateLimitAction } from '../middleware/auth.middleware';
 import { idempotency } from '../middleware/idempotency.middleware';
 import { merchantStats } from '../services/merchant-stats.service';
 import { generateCsv, TRANSACTION_COLUMNS } from '../utils/csv-export';
+import { linkTemplates } from '../services/link-template.service';
 
 const router = Router();
 const transactions = new TransactionService();
@@ -226,6 +227,91 @@ router.post(
         payload: testPayload,
       });
     }
+  }),
+);
+
+// ─── Link Templates ───────────────────────────────────
+
+router.get(
+  '/merchant-api/templates',
+  requireApiKey('links:read'),
+  asyncHandler(async (req: MerchantApiRequest, res: Response) => {
+    const templates = await linkTemplates.getTemplates(req.merchantId!);
+    res.json({ templates, count: templates.length, merchantId: req.merchantId });
+  }),
+);
+
+router.post(
+  '/merchant-api/templates',
+  requireApiKey('links:write'),
+  rateLimitAction('link:create'),
+  asyncHandler(async (req: MerchantApiRequest, res: Response) => {
+    const { name, amount, description, expiresInHours, maxUses } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'name es requerido.' });
+    }
+    const template = await linkTemplates.createTemplate({
+      merchantId: req.merchantId!,
+      name,
+      amount,
+      description,
+      expiresInHours,
+      maxUses,
+    });
+    res.status(201).json(template);
+  }),
+);
+
+router.get(
+  '/merchant-api/templates/:id',
+  requireApiKey('links:read'),
+  asyncHandler(async (req: MerchantApiRequest, res: Response) => {
+    const template = await linkTemplates.getTemplate(req.merchantId!, req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: 'Template no encontrado.' });
+    }
+    res.json(template);
+  }),
+);
+
+router.delete(
+  '/merchant-api/templates/:id',
+  requireApiKey('links:write'),
+  asyncHandler(async (req: MerchantApiRequest, res: Response) => {
+    const deleted = await linkTemplates.deleteTemplate(req.merchantId!, req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Template no encontrado.' });
+    }
+    res.json({ message: 'Template eliminado.', id: req.params.id });
+  }),
+);
+
+router.post(
+  '/merchant-api/templates/:id/use',
+  requireApiKey('links:write'),
+  asyncHandler(async (req: MerchantApiRequest, res: Response) => {
+    const template = await linkTemplates.getTemplate(req.merchantId!, req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: 'Template no encontrado.' });
+    }
+    if (template.maxUses && template.usageCount >= template.maxUses) {
+      return res.status(409).json({ error: 'Template alcanzó el límite de usos.' });
+    }
+
+    const link = await paymentLinks.createLink({
+      merchantId: req.merchantId!,
+      amount: template.amount ?? undefined,
+      description: template.description ?? undefined,
+      expiresInHours: template.expiresInHours,
+      maxUses: 1,
+    });
+
+    await linkTemplates.recordUsage(req.merchantId!, req.params.id);
+
+    res.status(201).json({
+      link,
+      template: { id: template.id, name: template.name, usageCount: template.usageCount + 1 },
+    });
   }),
 );
 
