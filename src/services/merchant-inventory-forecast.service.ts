@@ -22,7 +22,8 @@ export class MerchantInventoryForecastService {
     const avgDailySales = salesLast30Days / 30;
     const daysUntilStockout = avgDailySales > 0 ? Math.floor(currentStock / avgDailySales) : Infinity;
     const recommendedReorder = Math.ceil(avgDailySales * (leadTimeDays + 14));
-    const reorderBy = new Date(Date.now() + Math.max(0, (daysUntilStockout - leadTimeDays)) * 24 * 60 * 60 * 1000).toISOString();
+    const daysToAdd = daysUntilStockout === Infinity ? 365 : Math.max(0, daysUntilStockout - leadTimeDays);
+    const reorderBy = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000).toISOString();
 
     let urgency: InventoryForecast['urgency'];
     if (daysUntilStockout <= leadTimeDays) urgency = 'CRITICAL';
