@@ -39,10 +39,9 @@ export class UserOnboardingProgressService {
       progress.completedSteps.push(step);
     }
     const idx = STEP_ORDER.indexOf(step);
-    if (idx < STEP_ORDER.length - 1) {
-      progress.currentStep = STEP_ORDER[idx + 1];
-    } else {
-      progress.currentStep = 'COMPLETED';
+    const nextStep = idx < STEP_ORDER.length - 1 ? STEP_ORDER[idx + 1] : 'COMPLETED';
+    progress.currentStep = nextStep;
+    if (nextStep === 'COMPLETED' && !progress.completedAt) {
       progress.completedAt = new Date().toISOString();
     }
     progress.lastActiveAt = new Date().toISOString();
