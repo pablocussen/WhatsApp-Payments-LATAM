@@ -26,7 +26,7 @@ describe('MerchantShiftService', () => {
       return Promise.resolve(JSON.stringify({ id: 'shift_existing', status: 'OPEN', merchantId: 'm1', cashierId: 'c1' }));
     });
     await expect(s.openShift({ merchantId: 'm1', cashierId: 'c1', cashierName: 'X', openingAmount: 10000 }))
-      .rejects.toThrow('ya existe');
+      .rejects.toThrow('Ya existe');
   });
   it('records cash transaction', async () => {
     mockRedisGet.mockResolvedValue(JSON.stringify({ id: 'shift_1', status: 'OPEN', totalCash: 0, totalDigital: 0, transactionCount: 0 }));
