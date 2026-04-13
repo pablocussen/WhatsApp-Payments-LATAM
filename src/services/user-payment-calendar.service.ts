@@ -76,9 +76,9 @@ export class UserPaymentCalendarService {
     event.completed = true;
     if (event.recurring && event.recurringInterval) {
       const nextDate = new Date(event.date);
-      if (event.recurringInterval === 'MONTHLY') nextDate.setMonth(nextDate.getMonth() + 1);
-      if (event.recurringInterval === 'WEEKLY') nextDate.setDate(nextDate.getDate() + 7);
-      if (event.recurringInterval === 'YEARLY') nextDate.setFullYear(nextDate.getFullYear() + 1);
+      if (event.recurringInterval === 'MONTHLY') nextDate.setUTCMonth(nextDate.getUTCMonth() + 1);
+      if (event.recurringInterval === 'WEEKLY') nextDate.setUTCDate(nextDate.getUTCDate() + 7);
+      if (event.recurringInterval === 'YEARLY') nextDate.setUTCFullYear(nextDate.getUTCFullYear() + 1);
       list.push({
         ...event,
         id: `cal_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -121,7 +121,7 @@ export class UserPaymentCalendarService {
     return list
       .filter(e => {
         const d = new Date(e.date);
-        return d.getFullYear() === year && d.getMonth() === month;
+        return d.getUTCFullYear() === year && d.getUTCMonth() === month;
       })
       .reduce((sum, e) => sum + e.amount, 0);
   }

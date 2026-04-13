@@ -43,7 +43,7 @@ describe('UserPaymentCalendarService', () => {
     expect(saved).toHaveLength(2);
     expect(saved[0].completed).toBe(true);
     expect(saved[1].completed).toBe(false);
-    expect(new Date(saved[1].date).getMonth()).toBe(5);
+    expect(new Date(saved[1].date).getUTCMonth()).toBe(5);
   });
 
   it('marks completed non-recurring', async () => {
