@@ -34,7 +34,7 @@ describe('UserReceiptArchiveService', () => {
   });
 
   it('rejects over 500', async () => {
-    mockRedisGet.mockResolvedValue(JSON.stringify(Array.from({ length: 500 }, (_, i) => ({ transactionId: 'tx' + i }))));
+    mockRedisGet.mockResolvedValue(JSON.stringify(Array.from({ length: 500 }, (_, i) => ({ transactionId: 'old' + i }))));
     await expect(s.archive(base)).rejects.toThrow('500');
   });
 
