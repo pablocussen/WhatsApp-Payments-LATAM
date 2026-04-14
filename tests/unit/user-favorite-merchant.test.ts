@@ -28,7 +28,7 @@ describe('UserFavoriteMerchantService', () => {
   });
 
   it('rejects over 50 favorites', async () => {
-    mockRedisGet.mockResolvedValue(JSON.stringify(Array.from({ length: 50 }, (_, i) => ({ merchantId: 'm' + i }))));
+    mockRedisGet.mockResolvedValue(JSON.stringify(Array.from({ length: 50 }, (_, i) => ({ merchantId: 'other' + i }))));
     await expect(s.add(base)).rejects.toThrow('50');
   });
 
