@@ -32,7 +32,7 @@ describe('MerchantDepositReconciliationService', () => {
 
   it('rejects duplicate reference', async () => {
     mockRedisGet.mockResolvedValue(JSON.stringify([{ reference: 'TB-123456', status: 'PENDING' }]));
-    await expect(s.expectDeposit(base)).rejects.toThrow('ya existe');
+    await expect(s.expectDeposit(base)).rejects.toThrow('Ya existe');
   });
 
   it('matches within tolerance', async () => {
