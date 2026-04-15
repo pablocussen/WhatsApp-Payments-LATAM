@@ -1,7 +1,7 @@
 import { getRedis } from '../config/database';
 import { createLogger } from '../config/logger';
-import { formatCLP, formatDateCL } from '../utils/format';
-import { t, type Locale } from '../utils/i18n';
+import { formatCLP } from '../utils/format';
+import { type Locale } from '../utils/i18n';
 
 const log = createLogger('notifications');
 

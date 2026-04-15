@@ -63,7 +63,11 @@ const scheduler = new SchedulerService();
 const app = express();
 const startedAt = new Date();
 const pkg = { version: '0.1.0' }; // read once at startup
-try { Object.assign(pkg, require('../../package.json')); } catch { /* bundled */ }
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const packageJson = require('../../package.json');
+  Object.assign(pkg, packageJson);
+} catch { /* bundled */ }
 
 // Trust Google Cloud Run / load balancer proxies so req.ip reflects the real
 // client IP address (from X-Forwarded-For) rather than the proxy's IP.

@@ -9,7 +9,6 @@ const DISPATCH_TIMEOUT_MS = 10_000;
 const MAX_RETRIES = 5;
 const RETRY_DELAYS_MS = [0, 5_000, 30_000, 120_000, 600_000]; // 0s, 5s, 30s, 2m, 10m
 const RETRY_QUEUE_KEY = 'webhook:retry:queue';
-const RETRY_QUEUE_TTL = 24 * 60 * 60; // 24h
 
 export interface WebhookPayload {
   event: WebhookEvent;

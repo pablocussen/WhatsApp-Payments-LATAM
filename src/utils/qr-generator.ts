@@ -6,8 +6,6 @@
  * This generates a valid SVG representation.
  */
 
-const CELL_SIZE = 10;
-
 /**
  * Generate a simple QR-like pattern as SVG data URI.
  * This is a visual representation suitable for display/print.

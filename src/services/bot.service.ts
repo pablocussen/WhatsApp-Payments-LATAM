@@ -470,7 +470,6 @@ export class BotService {
         return this.startKycUpgradeFlow(from, userId);
       case 'cancel': {
         await deleteSession(from);
-        const user = await this.users.getUserByWaId(from);
         await this.wa.sendButtonMessage(
           from,
           'Operación cancelada.\n\n¿Qué necesitas?',

@@ -56,7 +56,7 @@ export class WhatsAppTemplateMessageService {
     if (!tpl || !tpl.approved) return null;
     let text = tpl.bodyText;
     for (const v of tpl.variables) {
-      text = text.replace(new RegExp('\{\{' + v + '\}\}', 'g'), vars[v] ?? '');
+      text = text.replace(new RegExp('\\{\\{' + v + '\\}\\}', 'g'), vars[v] ?? '');
     }
     tpl.usageCount++;
     try { const redis = getRedis(); await redis.set(WT_PREFIX + id, JSON.stringify(tpl), { EX: WT_TTL }); }

@@ -259,8 +259,6 @@ export class ScheduledReportsService {
    */
   async getDueReports(): Promise<ScheduledReport[]> {
     try {
-      const redis = getRedis();
-      // Scan all merchant indexes (simplified — in production use scan)
       const reports = await this.getAllActiveReports();
       const now = new Date().toISOString();
       return reports.filter((r) => r.active && r.nextRunAt <= now);

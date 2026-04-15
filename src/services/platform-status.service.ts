@@ -1,7 +1,4 @@
 import { getRedis } from '../config/database';
-import { createLogger } from '../config/logger';
-
-const log = createLogger('platform-status');
 
 // ─── Types ──────────────────────────────────────────────
 

@@ -115,7 +115,7 @@ export class MerchantCatalogImportService {
     return job;
   }
 
-  async markFailed(merchantId: string, id: string, reason: string): Promise<ImportJob | null> {
+  async markFailed(merchantId: string, id: string, _reason: string): Promise<ImportJob | null> {
     const list = await this.list(merchantId);
     const job = list.find(j => j.id === id);
     if (!job) return null;

@@ -1,7 +1,4 @@
 import { getRedis } from '../config/database';
-import { createLogger } from '../config/logger';
-
-const log = createLogger('cache');
 
 // TTLs in seconds
 const BALANCE_TTL = 30;

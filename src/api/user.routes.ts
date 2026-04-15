@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, AuthenticatedRequest, generateToken } from '../middleware/jwt.middleware';
-import { rateLimit, rateLimitAction } from '../middleware/auth.middleware';
+import { rateLimitAction } from '../middleware/auth.middleware';
 import { UserService } from '../services/user.service';
 import { WalletService } from '../services/wallet.service';
 import { TransactionService } from '../services/transaction.service';
