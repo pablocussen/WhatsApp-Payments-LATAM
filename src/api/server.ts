@@ -90,6 +90,8 @@ app.use(cors({
     'https://cussen-46735.web.app',
     'https://whatpay.cl',
     'https://www.whatpay.cl',
+    'https://whatpay-cl.web.app',
+    'https://whatpay-cl.firebaseapp.com',
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
